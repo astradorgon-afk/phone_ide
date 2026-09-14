@@ -1,0 +1,15 @@
+{
+  "id": "mf-doctor",
+  "display_name": "MobileForge Doctor",
+  "version": "1.0.0",
+  "abi": "x86_64",
+  "prefix": "/data/data/dev.mobileforge/files/usr",
+  "sha256": "63f9cd428e7990e8986522f5114bb4b03ea0e7a71ec4879bed99939ae68342bf",
+  "size_bytes": 2765,
+  "page_size": 16384,
+  "executables": [
+    "bin/mf-doctor"
+  ],
+  "license": "Apache-2.0",
+  "source_url": "https://example.invalid/mobileforge/tools/bundle/mf-doctor.c"
+}

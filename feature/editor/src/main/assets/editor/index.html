@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<!--
+  Content Security Policy.
+
+  This page renders the user's source code, which on a cloned repository is attacker-controlled
+  input. The policy below is the second line of defence behind the narrow bridge in
+  MonacoBridge.kt (see RISK-010 and docs/adr/ADR-003-monaco-integration.md):
+
+    default-src 'none'        deny everything, then allow only what Monaco genuinely needs
+    script-src 'self'         only bundled assets; no remote code, no eval-sourced script
+    connect-src 'self'        the page cannot phone home, which is what would turn a planted
+                              instruction in a source file into actual exfiltration
+    frame-src / object-src    'none' - nothing embeds anything
+
+  'unsafe-inline' is present for style-src only: Monaco injects its own stylesheets at runtime
+  and does not function without it. Scripts get no such exemption.
+-->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; child-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>MobileForge Editor</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    background: #0d1117;
+  }
+  #container { position: absolute; inset: 0; }
+  /* Shown only if Monaco fails to load, so the failure is visible rather than a blank screen. */
+  #fallback {
+    display: none;
+    padding: 16px;
+    color: #e6edf3;
+    font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace;
+  }
+</style>
+</head>
+<body>
+<div id="container"></div>
+<pre id="fallback"></pre>
+<!--
+  Every script here is an external file, because the CSP above is `script-src 'self'` and
+  blocks inline execution. Load order matters: bridge.js defines the message channel,
+  loader.js defines `require`, bootstrap.js uses both.
+
+  Do NOT move bootstrap.js back inline "for convenience" — it was inline once, Monaco silently
+  failed to initialise, and the only trace was a CSP violation in the WebView console.
+-->
+<script src="./bridge.js"></script>
+<script src="../monaco/vs/loader.js"></script>
+<script src="./bootstrap.js"></script>
+</body>
+</html>

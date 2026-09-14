@@ -1,0 +1,29 @@
+*.iml
+.gradle/
+.kotlin/
+local.properties
+.idea/
+.DS_Store
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+hs_err_pid*.log
+replay_pid*.log
+*.apk
+*.aab
+.toolchain-src/
+toolchain-output/
+*-build.log
+toolchain-*.log
+device-verification.log
+emulator-*.log
+*.keystore
+!debug.keystore
+
+# Vendored third-party editor assets are fetched by tools/fetch-monaco.sh
+/app/src/main/assets/monaco/
+
+# Never commit real secrets
+*.env
+!.env.example

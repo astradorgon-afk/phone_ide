@@ -1,0 +1,35 @@
+{
+  "id": "tree",
+  "display_name": "Tree",
+  "version": "2.3.2",
+  "abi": "x86_64",
+  "prefix": "/data/data/dev.mobileforge/files/usr",
+  "sha256": "9f4aa15d8465da54a0ce8fbf574f14200d74ff496e7a7a0c3ad1167f7310978a",
+  "size_bytes": 55181,
+  "page_size": 16384,
+  "executables": [
+    "bin/tree"
+  ],
+  "symlinks": {
+    "share/doc/tree/copyright": "../../LICENSES/GPL-2.0.txt"
+  },
+  "components": [
+    {
+      "name": "tree",
+      "version": "2.3.2",
+      "license": "GPL-2.0",
+      "source_url": "https://gitlab.com/OldManProgrammer/unix-tree/-/archive/2.3.2/unix-tree-2.3.2.tar.gz"
+    },
+    {
+      "name": "libandroid-support",
+      "version": "(29",
+      "license": "Apache-2.0, MIT",
+      "source_url": "(https://github.com/termux/libandroid-support/archive/refs/tags/v${TERMUX_PKG_VERSION[0]}.tar.gz"
+    }
+  ],
+  "requires": [
+    "base"
+  ],
+  "license": "GPL-2.0",
+  "source_url": "https://gitlab.com/OldManProgrammer/unix-tree/-/archive/2.3.2/unix-tree-2.3.2.tar.gz"
+}

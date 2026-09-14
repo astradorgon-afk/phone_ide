@@ -1,0 +1,52 @@
+--- a/packages/nodejs/build.sh
++++ b/packages/nodejs/build.sh
+@@ -63,16 +63,25 @@ termux_step_host_build() {
+ ######
+ # Download LLVM toolchain used by the upstream v8 project.
+ # Upstream v8 uses LLVM tooling from the main branch of the LLVM project as
+ # the main branch often contains bug fixes which are not released quickly to
+ # stable releases. Also Ubuntu's LLVM toolchain is too old in comparison to
+ # what Google uses.
+ ######
+ 
+ # The LLVM_COMMIT, as well as the tarball of the LLVM build by Google in use
+ # can be found in deps/v8/DEPS file,
+ #
+ # For instance, if the deps/v8/DEPS file contains:
+ #
+ #   'third_party/llvm-build/Release+Asserts': {
+ #  'dep_type': 'gcs',
+ #  'bucket': 'chromium-browser-clang',
+ #  'objects': [
+ #    {
+ #      'object_name': 'Linux_x64/clang-llvmorg-23-init-484-gf646b915-1.tar.xz',
+ #      'sha256sum': '1c3c056427ab0db261c54c8fdf7c8404ff55e3de3e550520bcb1e1660ca05aad',
+ #      'size_bytes': 57489092,
+ #      'generation': 1768590901063677,
+ #      'condition': 'host_os == "linux"',
+ #    },
+ #
+ # then the LLVM_COMMIT is f646b915. The g before the hash is not part of the
+ # hash, weird that they decided to include a 'g' for no reason, but 'g' isn't
+ # a part of the hexadecimal characters so anyways.. Also v8 project only
+ # stores the short-hash in the DEPS file, but we are using full hash here for
+ # clarity. The full hash can be obtained by having a full checkout of the
+ # llvm-project locally and then running `git log --format=%H -n 1` in the
+ # llvm-project directory.
+ #
+ # Also the sha256sum is the hash of the tarball, which we can directly use
++# Use LLVM 21 for x86_64 due to V8 macro incompatibility with LLVM 23 Clang
++# (deps/v8/src/roots/roots.h:504: error: expected identifier in INTERNALIZED_STRING_ROOT_LIST)
++# arm64 works with LLVM 23.
++if [ "$TERMUX_ARCH" = "x86_64" ]; then
++    local LLVM_TAR="clang-llvmorg-21-init-5118-g52cd27e6-5.tar.xz"
++    local LLVM_TAR_HASH=790fcc5b04e96882e8227ba7994161ab945c0e096057fc165a0f71e32a7cb061
++else
++    local LLVM_TAR="clang-llvmorg-23-init-484-gf646b915-1.tar.xz"
++    local LLVM_TAR_HASH=1c3c056427ab0db261c54c8fdf7c8404ff55e3de3e550520bcb1e1660ca05aad
++fi
+-local LLVM_TAR="clang-llvmorg-23-init-484-gf646b915-1.tar.xz"
+-local LLVM_TAR_HASH=1c3c056427ab0db261c54c8fdf7c8404ff55e3de3e550520bcb1e1660ca05aad
+ cd $TERMUX_PKG_HOSTBUILD_DIR
+ mkdir llvm-project-build
+ termux_download \

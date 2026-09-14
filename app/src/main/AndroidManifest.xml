@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      Permissions are added in the phase that actually earns them. Phase 1 declared none.
+
+      Phase 2 introduces long-running development processes, so it needs exactly three:
+
+        FOREGROUND_SERVICE / _SPECIAL_USE
+            A dev server the user started must survive backgrounding. SPECIAL_USE is the
+            honest category: this is not media, location, or data sync — it is a user-initiated
+            developer tool. The required justification property is declared on the service.
+
+        POST_NOTIFICATIONS
+            Required from API 33 to show the foreground-service notification at all. Requested
+            at runtime, and declined gracefully: processes still run, the notification is just
+            absent, which weakens survivability rather than breaking the feature.
+
+      Still NOT requested, deliberately:
+        INTERNET               nothing in this build makes a network request
+        MANAGE_EXTERNAL_STORAGE  projects live in app-internal storage; import uses SAF
+        WAKE_LOCK              a build should not stop the device sleeping
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+      `dataExtractionRules` is deliberate despite applying only from API 31.
+      `allowBackup="false"` already disables cloud and local backup on every supported version,
+      but device-to-device transfer is governed separately from 31 onward — so the rules file is
+      what stops secrets and installed toolchains being copied to a new device. Below 31 there is
+      nothing to configure, which is what lint is pointing out rather than a defect.
+    -->
+    <application
+        android:name=".MobileForgeApplication"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        tools:ignore="DataExtractionRules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.MobileForge"
+        android:usesCleartextTraffic="false">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|density|smallestScreenSize"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.MobileForge">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          Keeps user-started development processes alive while the IDE is backgrounded.
+          Not exported: nothing outside the app may start it.
+        -->
+        <service
+            android:name=".runtime.RuntimeForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps user-initiated development servers and build commands
+                    (for example a local PHP or Vite server) running while the IDE is in the
+                    background, as an on-device development environment." />
+        </service>
+    </application>
+
+</manifest>
