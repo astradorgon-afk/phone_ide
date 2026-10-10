@@ -43,7 +43,9 @@ import dev.mobileforge.core.designsystem.component.EmptyState
 import dev.mobileforge.core.designsystem.component.ErrorBanner
 import dev.mobileforge.core.designsystem.icon.ForgeIcons
 import dev.mobileforge.core.designsystem.theme.LocalForgeCodeTypography
+import dev.mobileforge.core.model.DetectedFramework
 import dev.mobileforge.feature.editor.EditorViewModel
+import dev.mobileforge.feature.editor.EditorUiState
 import dev.mobileforge.feature.editor.MonacoEditorView
 import dev.mobileforge.feature.editor.NativeCodeEditor
 import androidx.activity.compose.BackHandler
@@ -69,11 +71,15 @@ fun WorkspaceScreen(
     viewModel: WorkspaceViewModel,
     editorViewModel: EditorViewModel,
     terminalViewModel: TerminalViewModel?,
+    envViewModel: EnvViewModel,
+    artisanViewModel: ArtisanViewModel,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val editorState by editorViewModel.state.collectAsStateWithLifecycle()
+    val envState by envViewModel.state.collectAsStateWithLifecycle()
+    val artisanState by artisanViewModel.state.collectAsStateWithLifecycle()
 
     val widthDp = LocalConfiguration.current.screenWidthDp
     val isWide = widthDp >= WIDE_LAYOUT_BREAKPOINT_DP
@@ -82,8 +88,8 @@ fun WorkspaceScreen(
     var pendingFile by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingExit by rememberSaveable { mutableStateOf(false) }
     val requestBack: () -> Unit = {
-        if (!editorState.isSaving) {
-            if (editorState.isDirty) pendingExit = true else onBack()
+        if (!editorState.isSaving && !envState.isSaving && !artisanState.running) {
+            if (editorState.isDirty || envState.isDirty) pendingExit = true else onBack()
         }
     }
     val selectFile: (String) -> Unit = { path ->
@@ -93,13 +99,27 @@ fun WorkspaceScreen(
             else viewModel.selectFile(path)
         }
     }
-    BackHandler(enabled = editorState.isDirty || editorState.isSaving, onBack = requestBack)
+    BackHandler(
+        // A running artisan command also blocks exit: leaving would orphan the process, and
+        // the pane has a Stop button for exactly this moment.
+        enabled = editorState.isDirty || editorState.isSaving ||
+            envState.isDirty || envState.isSaving || artisanState.running,
+        onBack = requestBack,
+    )
     if (pendingFile != null || pendingExit) {
         AlertDialog(
             onDismissRequest = { pendingFile = null; pendingExit = false },
             title = { Text("Discard unsaved changes?") },
-            text = { Text("${editorState.fileName ?: "This file"} has unsaved changes. " +
-                "Keep editing to save them before continuing.") },
+            text = {
+                val dirtyName = when {
+                    editorState.isDirty && envState.isDirty ->
+                        "${editorState.fileName ?: "This file"} and .env"
+                    envState.isDirty -> ".env"
+                    else -> editorState.fileName ?: "This file"
+                }
+                Text("$dirtyName has unsaved changes. " +
+                    "Keep editing to save them before continuing.")
+            },
             confirmButton = { TextButton(onClick = {
                 val next = pendingFile
                 val exit = pendingExit
@@ -166,6 +186,55 @@ fun WorkspaceScreen(
                         }
                     }
                     if (isWide) {
+                        // No bottom bar on wide layouts, so the Env pane needs a way in,
+                        // mirroring the terminal toggle below it.
+                        IconButton(
+                            onClick = {
+                                pane = if (pane == WorkspacePane.Env) {
+                                    WorkspacePane.Editor
+                                } else {
+                                    WorkspacePane.Env
+                                }
+                            },
+                        ) {
+                            Icon(
+                                ForgeIcons.Edit,
+                                contentDescription = if (pane == WorkspacePane.Env) {
+                                    "Show editor"
+                                } else {
+                                    "Show .env editor"
+                                },
+                                tint = if (pane == WorkspacePane.Env) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+                        // No bottom bar on wide layouts, so the Artisan pane needs a way in too.
+                        IconButton(
+                            onClick = {
+                                pane = if (pane == WorkspacePane.Artisan) {
+                                    WorkspacePane.Editor
+                                } else {
+                                    WorkspacePane.Artisan
+                                }
+                            },
+                        ) {
+                            Icon(
+                                ForgeIcons.CheckCircle,
+                                contentDescription = if (pane == WorkspacePane.Artisan) {
+                                    "Show editor"
+                                } else {
+                                    "Show artisan"
+                                },
+                                tint = if (pane == WorkspacePane.Artisan) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
                         // No bottom bar on wide layouts, so the terminal needs a way in.
                         IconButton(
                             onClick = {
@@ -236,6 +305,10 @@ fun WorkspaceScreen(
                         Box(Modifier.weight(1f).fillMaxHeight()) {
                             if (pane == WorkspacePane.Terminal) {
                                 TerminalPane(terminalViewModel)
+                            } else if (pane == WorkspacePane.Artisan) {
+                                ArtisanPaneSlot(artisanViewModel, state)
+                            } else if (pane == WorkspacePane.Env) {
+                                EnvPaneSlot(envViewModel, editorViewModel, state, editorState)
                             } else {
                                 EditorPane(editorState.openPath != null, editorViewModel)
                             }
@@ -245,6 +318,11 @@ fun WorkspaceScreen(
                     pane == WorkspacePane.Explorer -> ExplorerPane(state, viewModel, selectFile)
 
                     pane == WorkspacePane.Terminal -> TerminalPane(terminalViewModel)
+
+                    pane == WorkspacePane.Artisan -> ArtisanPaneSlot(artisanViewModel, state)
+
+                    pane == WorkspacePane.Env ->
+                        EnvPaneSlot(envViewModel, editorViewModel, state, editorState)
 
                     else -> EditorPane(editorState.openPath != null, editorViewModel)
                 }
@@ -347,6 +425,8 @@ enum class WorkspacePane(val label: String) {
     Explorer("Files"),
     Editor("Code"),
     Terminal("Shell"),
+    Env("Env"),
+    Artisan("Artisan"),
     ;
 
     @Composable
@@ -354,7 +434,55 @@ enum class WorkspacePane(val label: String) {
         Explorer -> ForgeIcons.Folder
         Editor -> ForgeIcons.Code
         Terminal -> ForgeIcons.Terminal
+        Env -> ForgeIcons.Edit
+        Artisan -> ForgeIcons.CheckCircle
     }
+}
+
+/**
+ * The artisan pane.
+ *
+ * Gated on the detected framework: artisan only means something in a Laravel project, and a
+ * Node project must not get a console that errors on every command.
+ */
+@Composable
+private fun ArtisanPaneSlot(
+    artisanViewModel: ArtisanViewModel,
+    workspaceState: WorkspaceUiState,
+) {
+    ArtisanPane(
+        viewModel = artisanViewModel,
+        isLaravel = workspaceState.facts?.framework == DetectedFramework.Laravel,
+        frameworkLabel = workspaceState.facts?.framework?.displayName,
+        modifier = Modifier.fillMaxSize(),
+    )
+}
+
+/**
+ * The structured `.env` pane.
+ *
+ * After a save, an open `.env` in the code editor is reloaded so the two views cannot drift
+ * apart: without this the editor would keep showing pre-save text after the Env pane wrote.
+ */
+@Composable
+private fun EnvPaneSlot(
+    envViewModel: EnvViewModel,
+    editorViewModel: EditorViewModel,
+    workspaceState: WorkspaceUiState,
+    editorState: EditorUiState,
+) {
+    EnvPane(
+        viewModel = envViewModel,
+        readOnly = workspaceState.isReadOnly,
+        hasEnvExample = workspaceState.facts?.hasEnvExample == true,
+        onSaved = {
+            val open = editorState.openPath
+            if (open == ENV_FILE_PATH || open?.endsWith("/$ENV_FILE_PATH") == true) {
+                editorViewModel.openFile(open, readOnly = workspaceState.isReadOnly)
+            }
+        },
+        modifier = Modifier.fillMaxSize(),
+    )
 }
 
 /**

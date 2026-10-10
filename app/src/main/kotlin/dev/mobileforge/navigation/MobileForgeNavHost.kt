@@ -38,6 +38,8 @@ import dev.mobileforge.core.common.AppResult
 import dev.mobileforge.feature.settings.SettingsViewModel
 import dev.mobileforge.feature.terminal.TerminalViewModel
 import dev.mobileforge.feature.workspace.WorkspaceScreen
+import dev.mobileforge.feature.workspace.EnvViewModel
+import dev.mobileforge.feature.workspace.ArtisanViewModel
 import dev.mobileforge.feature.workspace.WorkspaceViewModel
 
 /**
@@ -208,10 +210,30 @@ private fun WorkspaceRoute(
         )
     }
 
+    val envViewModel: EnvViewModel = viewModel(
+        key = "env-$rawId",
+        factory = viewModelFactory {
+            EnvViewModel(fileSystem = fileSystem)
+        },
+    )
+
+    val artisanViewModel: ArtisanViewModel = viewModel(
+        key = "artisan-$rawId",
+        factory = viewModelFactory {
+            ArtisanViewModel(
+                projectRoot = rootPath,
+                executor = container.oneShotExecutor,
+                probe = container.runtimeProbe,
+            )
+        },
+    )
+
     WorkspaceScreen(
         viewModel = workspaceViewModel,
         editorViewModel = editorViewModel,
         terminalViewModel = terminalViewModel,
+        envViewModel = envViewModel,
+        artisanViewModel = artisanViewModel,
         onBack = onBack,
     )
 }

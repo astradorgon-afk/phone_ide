@@ -20,6 +20,7 @@ import dev.mobileforge.logging.AndroidLogger
 import dev.mobileforge.runtime.AndroidRuntimeFactory
 import dev.mobileforge.runtime.AndroidToolchainManager
 import dev.mobileforge.runtime.api.ToolchainManager
+import dev.mobileforge.runtime.api.ProcessExecutor
 import dev.mobileforge.runtime.ShellCommandFactory
 import dev.mobileforge.runtime.pty.NativePtyLauncher
 import dev.mobileforge.runtime.pty.PtyLauncher
@@ -30,6 +31,7 @@ import dev.mobileforge.runtime.exec.ExecCommandBuilder
 import dev.mobileforge.runtime.exec.ExecEnvironment
 import dev.mobileforge.runtime.exec.ExecStrategySelector
 import dev.mobileforge.runtime.exec.JvmProcessLauncher
+import dev.mobileforge.runtime.exec.OneShotProcessExecutor
 import dev.mobileforge.runtime.exec.PortAllocator
 import dev.mobileforge.runtime.exec.ProcessLauncher
 import dev.mobileforge.runtime.exec.RuntimeEnvironmentBuilder
@@ -64,6 +66,12 @@ interface AppContainer {
     val ptyLauncher: PtyLauncher
     val shellCommandFactory: ShellCommandFactory
     val toolchainManager: ToolchainManager
+
+    /**
+     * One-shot runs to completion (artisan, version probes). Unlike [processManager], its
+     * output flow ends and its await waits — the contract `ArtisanRunner` is written against.
+     */
+    val oneShotExecutor: ProcessExecutor
 
     /** A fresh terminal session. Each pane owns one; closing the pane closes the PTY. */
     fun newTerminalSession(): TerminalSession
@@ -173,6 +181,15 @@ class DefaultAppContainer(context: Context) : AppContainer {
     }
 
     override val portAllocator: PortAllocator by lazy { PortAllocator() }
+
+    override val oneShotExecutor: ProcessExecutor by lazy {
+        OneShotProcessExecutor(
+            launcher = processLauncher,
+            commandBuilder = execCommandBuilder,
+            environmentBuilder = runtimeEnvironment,
+            dispatchers = dispatchers,
+        )
+    }
     override val toolchainManager: ToolchainManager by lazy {
         AndroidToolchainManager(appContext, File(runtimeEnvironment.prefix), dispatchers, logger)
     }

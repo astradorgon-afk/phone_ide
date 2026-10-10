@@ -7,6 +7,7 @@ import dev.mobileforge.core.common.asFailure
 import dev.mobileforge.core.common.asSuccess
 import dev.mobileforge.runtime.api.OutputStream
 import dev.mobileforge.runtime.api.ProcessExecutor
+import dev.mobileforge.runtime.api.ProcessHandle
 import dev.mobileforge.runtime.api.ProcessSpec
 import kotlinx.coroutines.flow.toList
 import java.io.File
@@ -39,11 +40,15 @@ class ArtisanRunner(
      * [confirmed] must be true for anything [ArtisanCommand.requiresConfirmation] flags. The
      * caller is expected to have actually asked a person — this cannot verify that, but it can
      * and does make the decision explicit at the call site.
+     *
+     * [onStarted] receives the live handle before output is collected, so a caller with a
+     * stop button can signal it. It defaults to nothing: batch callers never need it.
      */
     suspend fun run(
         projectRoot: String,
         command: ArtisanCommand,
         confirmed: Boolean = false,
+        onStarted: (ProcessHandle) -> Unit = {},
     ): AppResult<ArtisanResult> {
         if (command.requiresConfirmation && !confirmed) {
             return AppError(
@@ -82,7 +87,7 @@ class ArtisanRunner(
 
         val handle = when (started) {
             is AppResult.Failure -> return started
-            is AppResult.Success -> started.value
+            is AppResult.Success -> started.value.also(onStarted)
         }
 
         // Collected before awaiting: a process that fills its pipe while nobody reads it will

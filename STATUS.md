@@ -1,12 +1,104 @@
 # MobileForge IDE — Status
 
-**Baseline as of 2026-09-07; continuation notes dated 2026-09-10 below.**
+**Baseline as of 2026-09-07; continuation notes dated 2026-09-10 below, latest 2026-10-10.**
 A snapshot of what actually works, what does not, and what it would take
 to finish. Written to be read by someone deciding whether and how to continue.
 
 The rule applied throughout: a thing is "done" only if it was **built, tested, and — where the
 claim depends on Android behaviour — measured on a device.** Nothing here is marked complete on
 the strength of reasoning alone.
+
+---
+
+## Continuation — 2026-10-10 (later)
+
+- Wired the **Artisan UI** (Phase 3): a fifth workspace pane (`Artisan`) with probed PHP
+  status, executed PHP/Laravel versions, one-tap quick commands, validated free-type input,
+  a confirmation dialog for flagged commands, and stoppable runs with a bounded console.
+- Wiring it exposed a real gap: **no production `ProcessExecutor` existed** — only test
+  fakes — and `DefaultProcessManager` cannot serve (`output` never completes, `await()`
+  does not wait). Added `OneShotProcessExecutor` in `:runtime:exec` plus an `onStarted`
+  handle hook on `ArtisanRunner`, with 8 + 6 + 9 new unit tests across the three modules.
+- Same honesty caveat as the `.env` work above: no toolchain on this machine, so nothing
+  was compiled or run. Review-only until `./gradlew :runtime:exec:testDebugUnitTest
+  :runtime:laravel:testDebugUnitTest :feature:workspace:testDebugUnitTest
+  :app:assembleDebug` passes and the pane runs against a real project on device.
+
+## Continuation — 2026-10-10 (Windows build + emulator, Docker host)
+
+**Full from-scratch build on Windows 11 passed: `BUILD SUCCESSFUL`, APK installed and
+launched on the API 30 emulator with no crashes.** Toolchain assembled user-local, no
+admin: Microsoft JDK 17.0.20, cmdline-tools (SHA-256 verified), platform-36,
+Monaco 0.52.2 vendored via npm, `local.properties` with forward slashes. Emulator is a
+lean AVD (`mf30`: API 30 AOSP x86_64, 1536 MB RAM) — boots with WHPX acceleration after
+enabling the Windows Hypervisor Platform feature + reboot. Launch evidence: pid alive,
+`targetSdk=36` confirmed in the on-device package, logcat free of FATAL. Measured
+alongside: system WebView is 83 (< Chromium 94, so the editor fallback applies here).
+
+Two things this surfaced, neither blocking:
+
+- One compile error in review-only code from the Artisan session: a nested class
+  touching a `private companion` (`OneShotProcessExecutor`), which kotlinc forbids.
+  Fixed by moving the constant to file scope; incremental rebuild green in ~2 min.
+- **AGP ignored the SDK packages I pre-installed and fetched its own**: NDK
+  27.0.12077973 and build-tools 35.0.0 (nothing pins `ndkVersion`, so AGP defaults win
+  over the r29/36.0.0 I staged). The native libs in this APK therefore came from NDK 27,
+  while the project's 16 KB-page verification story is written against r29. Worth a
+  deliberate pin-or-accept decision, not a mid-flight change. Also new (non-fatal, per
+  project policy): `KeyboardOptions` and WebView `databaseEnabled` deprecation warnings.
+
+Composer on device remains open: the bundle is packaged but the app has no PHP bundle
+on this machine yet, and composer cannot run without PHP.
+
+## Continuation — 2026-10-10 (Composer, on a Windows host with Docker)
+
+**Composer 2.10.3 is built and packaged for x86_64 + arm64-v8a.** Bundles at
+`build/toolchain-bundles/composer-2.10.3-{x86_64,arm64-v8a}.zip` (832,614 bytes each,
+manifest SHA-256 verified on the host). Criterion 9 moves to partial — packaged, never
+executed. Four defects found by doing it for real, none reachable by reasoning:
+
+- **The phar is not a tarball.** The build system tar-extracts every `SRCURL`; fixed with
+  `TERMUX_PKG_SKIP_SRC_EXTRACT=true` plus a `termux_step_post_get_source()` that fetches
+  via `termux_download` (same curl + SHA-256 machinery), and
+  `TERMUX_PKG_PLATFORM_INDEPENDENT=true` so one `_all.deb` serves every ABI.
+- **The license step needs a license file.** A phar-only source tree has none; the recipe
+  now fetches `LICENSE` from the matching tag, checksum-pinned
+  (`7855ac29…`, hashed from the exact bytes served).
+- **Upstream already has a composer recipe** — a from-source build needing a bootstrap
+  composer+php. Its leftover `fix-shebang.patch` broke our build; removed. Ours stays a
+  pinned phar with `php` as runtime `Recommends`, so the closure is the phar alone instead
+  of PHP's 33 dependencies duplicated into the bundle.
+- **The `-e TERMUX_APP__PACKAGE_NAME` flag does nothing.** `properties.sh` assigns the
+  default unconditionally, so early builds silently baked `com.termux` — caught only by
+  the packaging guard refusing the wrong-prefix `.deb`. Fixed via the sanctioned fork
+  edit (`tools/apply-termux-fork.sh`), verified at line 467.
+
+Packaging passed every check (prefix, ELF, shared libraries, shebang via the new
+`REQUIRES_PROVIDES=php` mechanism, 16 KB pages); the manifest declares
+`requires: [base, php]` and the installed phar's first line is
+`#!/data/data/dev.mobileforge/files/usr/bin/php`. Host tooling fixes along the way:
+`tools/*.sh` converted CRLF→LF plus `.gitattributes`, or bash breaks in the container.
+
+**Not claimed:** execution. No device or emulator is attached here, so `composer
+--version` on Android is still open — x86_64 first, then physical arm64.
+
+## Continuation — 2026-10-10
+
+- Implemented the **`.env` editor UI** (Phase 3): `EnvViewModel` + `EnvPane` in
+  `:feature:workspace`, wired as a fourth workspace pane alongside Files/Code/Shell with a
+  wide-layout top-bar toggle. Secrets stay masked until tapped per entry, masked rows are not
+  text fields (the mask cannot be saved back), saves go through the real atomic filesystem and
+  are byte-identical outside the edited line, untrusted workspaces refuse with a Security error,
+  and a missing `.env` is reported plainly with the `.env.example` next step. The exit-discard
+  dialog and back handler now cover unsaved `.env` changes too, and saving refreshes an open
+  `.env` in the code editor so the two views cannot drift apart.
+- Added **11 unit tests** (`EnvViewModelTest`) over the real `LocalWorkspaceFileSystem`,
+  following the `NativeEditorTest` pattern — including the `APP_KEY=base64:ab#cd` regression
+  guard through the save path.
+- **Not verified here:** no JDK, Android SDK, or ADB device is available on this machine, so
+  nothing was compiled or run. The new code is review-only until
+  `./gradlew :feature:workspace:testDebugUnitTest :app:assembleDebug` passes and the pane is
+  exercised on a device. ROADMAP marks the `.env` editor UI done at the code level only.
 
 ---
 
@@ -389,6 +481,7 @@ Extracted to `build/toolchain-bundles/` — these are the artifacts, not just co
 | git 2.55.0 | x86_64 / arm64-v8a | 14 | 986 | 19 / 20 MB |
 | php 8.5.1 | x86_64 / arm64-v8a | 33 | 870 | 48 / 49 MB |
 | nodejs-lts 24.18.0 | x86_64 | 9 | 27 | 34 MB |
+| composer 2.10.3 | x86_64 / arm64-v8a | 1 | 0 | <1 MB |
 | tree 2.3.2 | x86_64 / arm64-v8a | 2 | 1 | <1 MB |
 
 ### npm, and a chain of four defects behind it (2026-09-11)
@@ -513,12 +606,13 @@ reporting, bracketed paste and `htop`-class programs are unverified.
 
 | | |
 |---|---|
-| **MVP acceptance criteria met** | **11 of 28** (6 partial) |
+| **MVP acceptance criteria met** | **11 of 28** (7 partial) |
 | Phases complete | 0, 1, 2a, 2b-i, 2b-ii |
 | Phase partially complete | 2b-iii (git, PHP and Node run on device; arm64 outstanding) |
 | Phases not started | 3–9 |
 | Build | `BUILD SUCCESSFUL` — AGP 8.13.0 / Gradle 8.14.3 / targetSdk 36 |
 | Unit tests | 540, 0 failures (was 256 at baseline) |
+| Composer | ✅ Built + packaged 2026-10-10: 2.10.3 bundles for x86_64 + arm64-v8a in `build/toolchain-bundles/`; not yet executed on device |
 | Instrumented tests | 46 on Android 14 + Android 11, 0 failures |
 | Code | 98 Kotlin files (~13,900 lines), 3 C files (~590 lines) |
 | Modules | 17 Gradle modules |
@@ -604,7 +698,7 @@ Phases 3 through 9.
 | 6 | Open a terminal | ✅ |
 | 7 | Run shell commands | ✅ |
 | 8 | Run PHP | ✅ PHP 8.5.1 verified on device (x86_64) |
-| 9 | Run Composer | ❌ not packaged — it is a PHP phar, so this is packaging, not a platform problem |
+| 9 | Run Composer | ⚠️ packaged 2026-10-10 — `composer-2.10.3-{x86_64,arm64-v8a}` bundles built, all packaging checks pass; never executed anywhere yet |
 | 10 | Create a Laravel app | ❌ |
 | 11 | Artisan | ❌ |
 | 12 | Laravel local server | ❌ |
@@ -625,7 +719,7 @@ Phases 3 through 9.
 | 27 | Recover from runtime failures | ⚠️ partial — OS-kill detection, crash-safe writes |
 | 28 | Work without AI | ✅ trivially — there is no AI |
 
-**11 met, 6 partial, 11 not started.**
+**11 met, 7 partial, 10 not started.**
 
 Counted honestly rather than generously: "works if you type it in the terminal" is recorded as
 partial, not met, because criteria 15–18 describe Git *in the IDE* and Phase 4 has not started.

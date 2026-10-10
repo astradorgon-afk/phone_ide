@@ -363,8 +363,14 @@ done <<< "$(cd "$STAGE/bundle" && find . -type f -perm -u+x 2>/dev/null | sed 's
 # Tool bundles declare `base`, which carries the shell and coreutils. Interpreters those
 # bundles provide are therefore expected to be absent from THIS archive and are not failures —
 # but they are still listed, so the dependency is visible rather than implied.
+#
+# REQUIRES_PROVIDES="<interp> ..." extends that treatment to interpreters that a REQUIRED
+# bundle installs: the php bundle provides bin/php, so composer's `#!$PREFIX/bin/php`
+# shebang is satisfied by `REQUIRES="base,php" REQUIRES_PROVIDES="php"`. Without this the
+# only options would be duplicating PHP into every PHP-script bundle or declaring composer
+# broken via ALLOW_MISSING_INTERPRETERS when it is merely dependent.
 if [ -n "${REQUIRES:-}" ] && [ -n "$MISSING_INTERPRETERS" ]; then
-    for provided in $BASE_PROVIDES; do
+    for provided in $BASE_PROVIDES ${REQUIRES_PROVIDES:-}; do
         MISSING_INTERPRETERS="$(printf '%b
 ' "$MISSING_INTERPRETERS" | grep -v "/$provided\$" || true)"
     done

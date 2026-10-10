@@ -17,6 +17,12 @@ dependencies {
     implementation(projects.feature.editor)
     implementation(projects.feature.terminal)
 
+    // Structured .env editing over the tested EnvFile parser (Phase 3).
+    implementation(projects.runtime.laravel)
+
+    // Artisan execution: the runner contract and the capability probe (Phase 3).
+    implementation(projects.runtime.api)
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

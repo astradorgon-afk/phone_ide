@@ -236,10 +236,18 @@ cannot write to another app's prefix. Bundles must be built against our own pref
 
 ## Phase 3 — Laravel 🟡 Logic built and unit-tested; nothing verified on device yet
 
-- [ ] Laravel project creation via Composer — **blocked**: Composer is still building
+- [ ] Laravel project creation via Composer — **unblocked**: `composer-2.10.3` bundles built for x86_64 + arm64-v8a (2026-10-10); still needs on-device execution proof
 - [~] Artisan integration — `ArtisanCommand` (parsing, validation, risk gating) and
       `ArtisanRunner` (no shell; refuses an unconfirmed destructive command) built with 14 unit
       tests. Not yet wired to UI, not yet run against a real project
+- [x] **Artisan UI wired** — new `Artisan` workspace pane: probed PHP status (measured, never
+      assumed), executed PHP/Laravel versions, one-tap quick commands marked when they ask
+      first, free-type input with parse validation, confirmation dialog carrying the risk
+      reason, stoppable runs with a bounded console. Requires a production `ProcessExecutor`,
+      which did not exist: added `OneShotProcessExecutor` in `:runtime:exec` (finite output,
+      honest await, timeout, stop) because the manager's infinite flow and non-waiting await
+      cannot serve short-lived commands. `ArtisanRunner` gained an `onStarted` handle hook.
+      8 executor + 6 runner + 9 view-model unit tests. Code level only — not run (2026-10-10)
 - [ ] Local server + WebView live preview
 - [x] **Real, executed versions** — `LaravelVersions` runs `php --version` and
       `php artisan --version` rather than reading composer.json, which declares what a project
@@ -250,7 +258,11 @@ cannot write to another app's prefix. Bundles must be built against our own pref
       them on the two ways it could do harm: silently reformatting a hand-maintained file, and
       showing a secret. `APP_KEY=base64:ab#cd` keeps its `#`; the mask is fixed-width so it does
       not leak length; `render()` can never write the mask over a real secret (2026-09-11)
-- [ ] `.env` editor UI
+- [x] **`.env` editor UI** — `EnvViewModel` + `EnvPane` in `:feature:workspace` (new 4th
+      workspace pane), over the tested `EnvFile` parser. Secrets masked until tapped per entry;
+      masked rows are not text fields so the mask can never be saved back; saves are atomic and
+      byte-identical outside the edited line; read-only workspaces refuse with a Security error;
+      a missing `.env` is reported plainly. 11 unit tests over the real filesystem (2026-10-10)
 
 ## Phase 4 — Git
 
