@@ -53,12 +53,14 @@ Verified on the emulator (`emulator-5554`, Android 11, 1080×2340, density 440):
   services". `models.dev` is unreachable from the emulator, which opencode records as an error and
   continues past — the TUI itself needs no model.
 
-- **Rows are now uniform.** With the old build the grid alternated 39px and 45px rows; with the fix
-  every row's top is 44px below the previous one (`687, 731, 775, 819, …`), and opencode's input
-  border draws exactly 54 columns wide — matching the `11 54` the shell itself reports from
-  `stty size`, so the width was never the problem. What is left is opencode's own layout: it wraps
-  the full workspace path onto a second row in a 54-column terminal, which is a narrow-screen
-  layout choice, not a mis-report.
+- **The grid stops drifting.** Rows are now placed at one cell height (44px, the 16sp line height)
+  instead of alternating between roughly 39px and 45px, so a full-screen program's absolute row
+  positions no longer move under it. The accessibility tree reports each row's *text* node, not the
+  row box, and a row that falls back to the taller face still reports a taller node inside its fixed
+  box — hence a couple of sampled deltas read 47px — but the box pitch is steady. opencode's input
+  border also draws exactly 54 columns wide, matching the `11 54` the shell reports from
+  `stty size`, so the width was never the problem: the full workspace path wrapping to a second row
+  is opencode's own narrow-screen layout, not a mis-report.
 
 The bundle shims were rebuilt for both ABIs (`tools/sigsys-shim/build.ps1`) and the two checked-in
 opencode bundles and their manifests regenerated, so the installed artifact carries the same shim as
