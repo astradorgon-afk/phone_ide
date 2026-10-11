@@ -1,6 +1,6 @@
 # MobileForge IDE — Status
 
-**Baseline as of 2026-09-07; continuation notes dated 2026-09-10 below, latest 2026-10-10.**
+**Baseline as of 2026-09-07; continuation notes dated 2026-09-10 below, latest 2026-10-11.**
 A snapshot of what actually works, what does not, and what it would take
 to finish. Written to be read by someone deciding whether and how to continue.
 
@@ -9,6 +9,214 @@ claim depends on Android behaviour — measured on a device.** Nothing here is m
 the strength of reasoning alone.
 
 ---
+
+## Continuation — 2026-10-11 (the real Laravel wizard runs to completion on the emulator)
+
+**`composer create-project laravel/laravel` now completes inside the app on the emulator — the
+whole Phase 3 chain, end to end.** A fresh catalog-only install (pm clear → skip setup →
+Toolchains → Download and install) pulled Base → PHP → Composer, and then the Laravel wizard
+(`New project` → Laravel → consent → "Download and create") ran the real composer against
+the network. It fetched the skeleton, installed ~37 vendor packages, wrote `composer.json`,
+`composer.lock`, generated `.env` with a real `APP_KEY=base64:…`, and presented
+"«name» is ready — framework, .env and application key all in place." Opening the project and
+going to the Artisan pane shows executed versions: **"PHP 8.5.1 · Laravel 13.35.0"** (that readout
+runs `php --version` and `php artisan --version` in the app's runtime domain; the pane's one-tap
+quick commands — serve, route:list, migrate, … — are all live now too).
+
+Two real defects surfaced on the way, both now fixed:
+
+- **`$PREFIX/tmp` never existed.** Composer ran, fetched Laravel v13.11.0, then died with "PHP
+  temp directory (`…/files/usr/tmp`) does not exist or is not writable to Composer". PHP's
+  `sys_temp_dir` is compiled to `$PREFIX/tmp` (termux builds no php.ini), and Termux creates that
+  directory at *app startup* — nothing here ever did. `ToolchainInstaller` now creates the standard
+  runtime directories (`tmp`, `cache`, `var/tmp`, `var/cache`, `var/log`) after every successful
+  bundle install, idempotently, refusing a regular file where a directory belongs. Failure paths
+  are pre-promotion, so the "a failed install leaves the prefix untouched" contracts still hold.
+  +2 unit tests; verified live (`files/usr/tmp` and `files/usr/cache` exist after a fresh
+  install). This is a generic toolchain fix — git, node and anything else that wants a temp/cache
+  directory benefits.
+- **The runtime probe false-negatived a slow cold start.** The first `php` invocation ever after a
+  fresh install took >5 s on the emulator, and the Artisan pane reported "PHP cannot run on this
+  device" / "'php' did not respond within 5000ms". The probe's window was the mechanism
+  self-test's 5 s default; raised `DEFAULT_TIMEOUT_MS` to 15 s (no test pinned the 5 s). Retry on
+  the same run answered "PHP 8.5.1 · Laravel 13.35.0".
+
+Also refreshed: the **embedded composer bundle in the APK** (`app/src/main/assets/bundles/`) is
+now the fixed one (`sha256 36b22c…`, digest verifies against its manifest), so a first-run setup
+screen can never hand out the corrupted phar. `ComposerToolchainVerificationTest` still OK (2 tests)
+after the timeout change and reinstall.
+
+The aarch64 build from the previous note **finished and packaged everything**: `base-1.0.0-arm64-v8a`
+(digest `4cb11cca…`) and `php-8.5.1-arm64-v8a` (digest `062c4ab1…`) are in
+`build/toolchain-bundles/`, each manifest digest verifying against its archive; the php build
+passed its own ELF-architecture, shared-library and shebang checks. `composer-2.10.3-arm64-v8a`
+(digest `1cf3dfa1…`) holds the same pristine phar as the x86_64 bundle — byte-identical to the
+official 2.10.3 phar from getcomposer.org (`7a2d379d…`, 3,642,137 B) — behind the same `sh`
+wrapper. The serve server is up and answers all three arm64 manifests at the catalog's URLs. The
+**only** thing left for the phone proof is the A50 being attached
+
+---
+
+## Continuation — 2026-10-10 (toolchains install themselves; the manifest dead end is closed)
+
+**Choosing "Install from manifest" used to open an empty file picker.** Nothing was downloaded,
+and a person had no way to know what to download. The app now decides that: a catalog asset
+(`app/src/main/assets/bundles/catalog.json`) names the bundles and versions a build publishes, and
+the Toolchains screen fetches and installs them itself. Hand-importing a manifest + ZIP still
+exists, demoted to **Advanced options**.
+
+New `runtime:toolchain` code does the work: `BundleCatalog` + `BundleUrlPolicy`, `BundleFetcher` /
+`HttpBundleFetcher` (streamed, atomic `.part` → rename, progress, cancel-aware) and
+`CatalogInstaller` (installs in `REQUIRED_TOOLCHAIN_IDS` order, refuses a bundle whose `requires`
+are absent, re-fetches on a size mismatch). `AndroidBundleStore` reads the catalog from the APK,
+narrows it to the device ABI, applies a user source override, and caches downloads per source.
+The catalog only says *where*; the bundle manifest stays authoritative for digest, size, ABI and
+dependencies.
+
+**Verified end to end on the API 30 emulator**, against a local server over `adb reverse`: the
+screen listed Base 1.0.0 + Composer 2.10.3 as "Not installed"; "Download and install (2)" streamed
+`base` (~20 MB) with live progress, installed it, then downloaded `composer` and **refused** it —
+"Composer needs another bundle first. Install php before this one." — leaving Base marked
+**Installed** and the count at 1. The server log confirms the app fetched both manifests and both
+archives; `base.json` and `usr/bin/bash` are on disk.
+
+Device testing found two real defects, neither reachable by reasoning:
+
+- **Android blocks cleartext to `127.0.0.1`.** The first run died with "Cleartext HTTP traffic to
+  127.0.0.1 not permitted". Added `res/xml/network_security_config.xml`, reopening cleartext only
+  for `localhost`, `127.0.0.1` and the emulator's host alias, and **narrowed `BundleUrlPolicy` to
+  exactly that set** — a LAN address is not writable in a network security config, so allowing
+  ranges in code would only produce a confusing OS-level failure. The app's rule and the OS's rule
+  now agree; anything else must be HTTPS.
+- **A partial run left the list stale.** Base installed, Composer failed, and the screen still said
+  "Not installed" because the failure path returned without re-reading the installed list. Fixed by
+  re-reading it *without* erasing the error that explains the stop; covered by a ViewModel test.
+- (A third, in the helper rather than the app: `HttpListener` answers 400 to a `127.0.0.1` Host
+  header unless that prefix is registered too. `tools/serve-bundles.ps1` registers both.)
+
+Tests: `runtime:toolchain` **66** (the 4 symlink tests now *skip* where the OS forbids creating
+links, instead of failing — Windows without Developer Mode), `feature:settings` **9** for the new
+ViewModel, and **3** new instrumented tests (`BundleStoreVerificationTest`) proving the catalog
+asset reads and narrows on device, a *downloaded* `file://` manifest is inspectable through the
+real manager, and a source override changes the base URL. All green; the app builds.
+
+**Still open, and it is the whole remaining distance for the phone:** the catalog ships **x86_64**
+base + Composer only. There is no arm64 base or php bundle on this machine (the Docker volume holds
+x86_64 `.deb`s; the PHP x86_64 build is still running), and `bundles.mobileforge.dev` does not
+exist. So on the A50 the screen will say, correctly, that nothing is available for the device. The
+UI, the download path and the dependency logic are done; what is missing is **artifacts and a
+host**. `tools/serve-bundles.ps1` + `adb reverse` serves a build tree over loopback today, and
+`docs/bundle-hosting.md` records the publish contract.
+
+**The aarch64 build is now running.** `base` and `php` for `arm64-v8a` are compiling in Docker
+(`composer-2.10.3-arm64-v8a` already existed). It is a first build of a new architecture, so it is
+hours, and a detached job (`tools/build-base-php.sh` records the exact invocation) packages both
+bundles into `build/toolchain-bundles/` on completion. A second, already-running x86_64 PHP build is
+packaged the same way once it exits. Both catalogs now list `arm64-v8a` alongside `x86_64`; the app
+keeps only the entries matching `Build.SUPPORTED_ABIS.first()`, so one catalog serves phone and
+emulator. Until the builds finish, the arm64 entries point at files that do not exist yet.
+
+Reproducing the *existing* x86_64 base bundle from the volume's `.deb`s (fast) proved the packaging
+recipe before trusting it to a multi-hour build, and corrected two things about it. Base's closure
+roots are **four**, not one: `termux-tools`, plus `bash` and the util-linux subpackages
+`libmount`/`libblkid`. A closure of `termux-tools` alone packages cleanly and then fails — first the
+`bin/sh -> bash` step ("bash is not in the bundle"), then the shared-library check (`bin/lsns needs
+libmount.so`). With all four roots the rebuilt manifest's **50 components match the shipped base
+bundle exactly** (only versions have advanced, e.g. `libiconv` 1.18 -> 1.19).
+
+Starting that build also surfaced a **real bug in `tools/termux-build.sh`** that only a *fresh
+architecture* can trigger: `set -euo pipefail` plus
+
+```
+STALE_WRAPPER="$(find "$STATE/termux-build/_cache" ... 2>/dev/null | head -1)"
+```
+
+`find` exits 1 for a missing directory, `pipefail` makes the pipeline 1, and `errexit` then kills
+the script **before it prints anything** — an empty log and a bare exit code. It had only ever run
+for `x86_64`, whose `_cache` already existed. Guarded with a directory test.
+
+**The x86_64 chain is now proven end-to-end.** The PHP build finished; a fresh install (pm clear,
+skip the embedded setup, catalog only) pulled Base → PHP → Composer from the local server
+(`Everything is installed · Toolchain ready`, 3 records on disk), and `ComposerToolchainVerificationTest`
+ — which executes composer in the app's SELinux domain — went from failing to **OK (2 tests)**:
+`composer --version` and `create-project` both run.
+
+That turnaround was a real packaging bug: composer's phar was being corrupted, **twice**. The
+recipe `sed`-rewrote its shebang, and termux's own massage pass rewrites every `#!` it finds under
+bin/ and lib/ to the termux prefix. A phar's SHA-512 signature covers the whole file — stub and
+shebang included — so either edit made PHP refuse it (`PharException: SHA512 signature could not
+be verified`; also a quiet endorsement that the interposer + shebang + PHP chain works). The fix:
+`bin/composer` is now a two-line `sh` wrapper that `exec`s `$PREFIX/bin/php` on the *untouched*
+phar at `lib/composer/composer.phar`, and the recipe exempts the phar from the shebang pass
+(`TERMUX_PKG_NO_SHEBANG_FIX_FILES="lib/composer/composer.phar"`). The rebuilt bundle's phar hashes
+to the pinned SHA-256 exactly. Notes for later: `termux_step_post_massage` does not exist in this
+build system (silent no-op — don't reach for it), and composer being arch-independent means one
+`.deb` packages all ABIs. The aarch64 composer bundle is already repackaged with the fix; the
+running aarch64 base+php build is unaffected.
+
+## Continuation — 2026-10-10 (Monaco renders on real hardware)
+
+**The editor works on the phone.** Root cause of the black screen, measured live via
+remote debugging: Monaco was mounted, the bridge worked both ways, and the document
+(197 chars) sat in the model — but the container div measured **411×0 px**, so
+nothing painted, nothing was tappable, and no keyboard ever appeared. The page laid
+out while the host WebView still reported zero height (a startup race the fast
+emulator never loses), and Monaco's `automaticLayout` observer never fired afterward.
+
+Fixed in `bridge.js` with explicit sizing (`innerHeight` pixels + `editor.layout()`)
+at init, on window resize, on document-element resizes, and on every document push —
+idempotent, so devices that never lose the race see no change. Verified on the A50:
+rendered text with highlighting, Samsung keyboard appears on tap, real key taps land
+in the document with IME suggestions working, dirty marker set. Untouched test
+surface: pure asset change, no Kotlin touched for the fix itself.
+
+Same session also shipped permanent diagnosability for this failure class: JS console
+capture into the error-banner path, page-load error reporting, a 30 s boot timeout,
+and debug-gated WebView remote debugging. Temporary `MFBOOT` trace lines remain in
+`bootstrap.js` until the next device issue either needs or retires them.
+
+## Continuation — 2026-10-10 (first physical device: Galaxy A50, Android 11, arm64)
+
+**The app is installed and running on real hardware.** A user-connected Galaxy A50
+(`SM-A505GN`, Android 11, arm64-v8a — the minSdk floor on a real CPU) took the debug
+APK over ADB: install clean, launches to the projects screen, no crashes in logcat,
+system dark theme respected. First physical-device data point in project history; all
+prior verification was x86_64 emulator.
+
+Two honest observations from the same run: the setup gate correctly stayed silent
+(the staged bundles are x86_64-only, so there was nothing to offer — the empty-state
+path working as designed), and the projects empty-state text ("not bundled yet") is
+now stale on builds that DO embed bundles. That string needs a pass once arm64
+bundles exist.
+
+## Continuation — 2026-10-10 (Laravel wizard; UI verified on emulator)
+
+**Automatic Laravel creation exists now** — as a guided wizard, not a silent button.
+New `Laravel` template row → `laravel/{name}` route → preflight (toolchain records,
+validated network, disk) → consent screen stating the exact command, ~200 MB and
+minutes → streaming download log with Stop → `.env` + app-key finish → opens the
+project. Verified on the API 30 emulator up to preflight: missing PHP/Composer
+reported honestly, real network ("Connected") and disk ("9629 MB free") readings,
+8 VM + 5 runner unit tests green. The manifest gains the two network permissions the
+download genuinely needs. The full download path is unblocked-but-unrun: it waits on
+the PHP Docker build still running.
+
+## Continuation — 2026-10-10 (first-run setup, verified on the API 30 emulator)
+
+**The setup flow works end to end on device.** Fresh install opened straight into the
+new screen: base + Composer listed with versions and sizes, PHP honestly missing,
+"20.3 MB to install". Tapping Install drove a real 20 MB base install to a DONE
+checkmark, then Composer was refused with "needs another bundle first — install php"
+and the run stopped with Retry offered. `file://` asset references install through
+the real `ToolchainManager` path; no SAF picker involved.
+
+Device testing also caught a real bug the 6 unit tests missed: a failed item stayed
+`INSTALLING`, greying out Install while Retry silently did nothing. Fixed (failure
+resets to `PENDING` on all three failure exits), covered by a 7th test, and
+re-verified on device through dismiss → Install → refusal → still-alive buttons.
+
+Still open: the PHP bundle (Docker build running), which turns this screen's partial
+run into the full base → php → composer chain, and the Laravel creation wizard.
 
 ## Continuation — 2026-10-10 (later)
 

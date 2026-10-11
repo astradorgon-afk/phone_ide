@@ -25,6 +25,12 @@ internal fun Project.configureKotlinAndroid(commonExtension: CommonExtension<*, 
     commonExtension.apply {
         compileSdk = libs.intVersion("compileSdk")
 
+        // Pinned, not defaulted. AGP silently installs and uses its own default NDK (r27 at
+        // AGP 8.13) when nothing is pinned — observed on a fresh machine where a staged r29
+        // sat unused. The 16 KB-page story (RISK-004, ADR-011) was verified against r29-built
+        // libraries, so the build must say r29 out loud rather than accept whatever AGP picks.
+        ndkVersion = "29.0.13113456"
+
         defaultConfig {
             minSdk = libs.intVersion("minSdk")
         }

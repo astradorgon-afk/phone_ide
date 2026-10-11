@@ -18,7 +18,12 @@ dependencies {
     // Contracts only: the diagnostics screen reports runtime capability, it does not use it.
     implementation(projects.runtime.api)
 
+    // Bundle catalog types flow through BundleStore so the screen can offer automatic
+    // installs without depending on Android's asset manager or HTTP.
+    implementation(projects.runtime.toolchain)
+
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.kotlinx.coroutines.android)

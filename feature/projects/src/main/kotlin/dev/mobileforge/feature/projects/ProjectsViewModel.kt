@@ -168,4 +168,10 @@ enum class ProjectTemplate(
         framework = DetectedFramework.Php,
         scaffold = ScaffoldTemplate.Php,
     ),
+    Laravel(
+        displayName = "Laravel",
+        description = "Full framework via Composer — a guided download, several minutes.",
+        framework = DetectedFramework.Laravel,
+        scaffold = ScaffoldTemplate.Empty,
+    ),
 }

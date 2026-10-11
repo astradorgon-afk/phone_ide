@@ -1,6 +1,10 @@
 package dev.mobileforge.feature.editor
 
 import android.annotation.SuppressLint
+import android.os.Build
+import android.webkit.ConsoleMessage
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -82,7 +86,12 @@ fun MonacoEditorView(
                     javaScriptCanOpenWindowsAutomatically = false
                     setGeolocationEnabled(false)
                     setSupportMultipleWindows(false)
-                    databaseEnabled = false
+                    // Web SQL is removed from API 35+, where this call is a deprecated no-op —
+                    // but minSdk is 30, so it still disables a real database on older devices.
+                    @Suppress("DEPRECATION")
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                        databaseEnabled = false
+                    }
                     mediaPlaybackRequiresUserGesture = true
 
                     // Needed by Monaco's AMD loader and language service workers.
@@ -111,6 +120,39 @@ fun MonacoEditorView(
                         view: WebView,
                         request: WebResourceRequest,
                     ): Boolean = true
+
+                    /**
+                     * Page-load failures are as silent as JS failures without this: a missing
+                     * asset or a blocked request would leave the same blank WebView. Only the
+                     * main frame is reported — subresource failures belong to the console.
+                     */
+                    override fun onReceivedError(
+                        view: WebView,
+                        request: WebResourceRequest,
+                        error: WebResourceError,
+                    ) {
+                        if (request.isForMainFrame) {
+                            bridge.reportConsole(
+                                "Editor page failed to load (${error.errorCode}): " +
+                                    "${request.url}",
+                                isError = true,
+                            )
+                        }
+                    }
+                }
+
+                // Console capture: without this, a Monaco boot failure is a permanently blank
+                // WebView — no fallback text, no banner, nothing in logcat. Observed on real
+                // hardware as "I can't type anything". Errors surface as banner events;
+                // everything lands in logcat for diagnosis.
+                webChromeClient = object : WebChromeClient() {
+                    override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                        bridge.reportConsole(
+                            message.message() ?: return true,
+                            isError = message.messageLevel() == ConsoleMessage.MessageLevel.ERROR,
+                        )
+                        return true
+                    }
                 }
 
                 addJavascriptInterface(bridge, JS_INTERFACE_NAME)

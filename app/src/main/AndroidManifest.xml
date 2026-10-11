@@ -18,13 +18,26 @@
             absent, which weakens survivability rather than breaking the feature.
 
       Still NOT requested, deliberately:
-        INTERNET               nothing in this build makes a network request
         MANAGE_EXTERNAL_STORAGE  projects live in app-internal storage; import uses SAF
         WAKE_LOCK              a build should not stop the device sleeping
     -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+      Added for Phase 3. Two things now reach the network:
+
+        * `composer create-project` downloads ~200 MB from Packagist, and the Laravel
+          wizard checks connectivity before starting.
+        * The toolchain screen downloads bundles from the app's bundle source, so the
+          versions it installs are programmed rather than sourced by hand.
+
+      Both are install-time normal permissions — no runtime prompt — and neither sends
+      anything of the user's anywhere except the downloads they explicitly started.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!--
       `dataExtractionRules` is deliberate despite applying only from API 31.
@@ -40,6 +53,7 @@
         tools:ignore="DataExtractionRules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.MobileForge"

@@ -106,7 +106,7 @@ internal fun TerminalInput(
                     keyboardOptions = KeyboardOptions(
                         // Autocorrect and capitalisation are actively harmful here: a shell
                         // command is not prose, and "Ls" or "ls." does not run.
-                        autoCorrect = false,
+                        autoCorrectEnabled = false,
                         capitalization = KeyboardCapitalization.None,
                         imeAction = ImeAction.Send,
                     ),

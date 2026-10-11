@@ -158,6 +158,16 @@ class ToolchainInstaller(
         // its target — which is exactly the size problem links exist to avoid.
         createSymlinks(prefixDir, manifest)?.let { return@withContext it }
 
+        // Standard directories every toolchain build assumes exist. Termux creates these at
+        // app startup; nothing in this app does, so the first bundle install must — PHP's
+        // sys_temp_dir is baked to `$PREFIX/tmp`, for example, and Composer refuses to run
+        // while it is missing ("temporary files directory does not exist"), and every tool
+        // gets TMPDIR=$PREFIX/tmp from the runtime environment.
+        when (val dirs = ensureRuntimeDirectories()) {
+            is AppResult.Failure -> return@withContext dirs
+            is AppResult.Success -> Unit
+        }
+
         onProgress(PROGRESS_DONE)
         logger.info(TAG, "Installed ${manifest.id} ${manifest.version} (${manifest.abi})")
 
@@ -435,6 +445,34 @@ class ToolchainInstaller(
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
+    /**
+     * Ensures the standard runtime directories exist in the prefix.
+     *
+     * The bundles ship files, not empty directories, and nothing that runs this app creates
+     * them — while Termux creates `tmp/`, `cache/` and friends when its app starts, MobileForge
+     * has no equivalent step, so installation must. They are created after every successful
+     * install (idempotently): a tool bundle can depend on `base` having run, but never on a
+     * specific order of tool bundles.
+     */
+    private fun ensureRuntimeDirectories(): AppResult<Unit> {
+        for (relative in STANDARD_RUNTIME_DIRECTORIES) {
+            val dir = File(prefixDir, relative)
+            when {
+                dir.isDirectory -> Unit
+                dir.exists() -> return AppError(
+                    category = ErrorCategory.FileSystem,
+                    message = "The install location is occupied.",
+                    detail = "'$relative' exists but is not a directory.",
+                    recovery = "Move or remove '$relative' inside '${prefixDir.absolutePath}'.",
+                ).asFailure()
+                !dir.mkdirs() -> return ioError(
+                    "A runtime directory could not be created.", IOException("mkdir $relative"),
+                )
+            }
+        }
+        return AppResult.Success(Unit)
+    }
+
     private fun securityError(message: String, detail: String): AppResult<Nothing> = AppError(
         category = ErrorCategory.Security,
         message = message,
@@ -462,6 +500,14 @@ class ToolchainInstaller(
         const val PROGRESS_EXTRACTING = 0.15f
         const val PROGRESS_PROMOTING = 0.90f
         const val PROGRESS_DONE = 1.0f
+
+        /**
+         * Directories every tool assumes, created inside `$PREFIX` by [ensureRuntimeDirectories].
+         * The set mirrors what Termux's app bootstrap creates before any package installs.
+         */
+        val STANDARD_RUNTIME_DIRECTORIES = listOf(
+            "tmp", "cache", "var/tmp", "var/cache", "var/log",
+        )
     }
 }
 

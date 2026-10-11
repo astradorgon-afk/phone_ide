@@ -8,6 +8,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -34,13 +35,21 @@ import dev.mobileforge.feature.projects.ProjectsScreen
 import dev.mobileforge.feature.projects.ProjectsViewModel
 import dev.mobileforge.feature.settings.DiagnosticsScreen
 import dev.mobileforge.feature.settings.SettingsScreen
+import dev.mobileforge.feature.settings.SetupScreen
+import dev.mobileforge.feature.settings.SetupViewModel
 import dev.mobileforge.core.common.AppResult
 import dev.mobileforge.feature.settings.SettingsViewModel
 import dev.mobileforge.feature.terminal.TerminalViewModel
 import dev.mobileforge.feature.workspace.WorkspaceScreen
 import dev.mobileforge.feature.workspace.EnvViewModel
 import dev.mobileforge.feature.workspace.ArtisanViewModel
+import android.net.Uri
+import dev.mobileforge.feature.projects.LaravelWizardScreen
+import dev.mobileforge.feature.projects.LaravelWizardViewModel
 import dev.mobileforge.feature.workspace.WorkspaceViewModel
+import dev.mobileforge.feature.workspace.ServeViewModel
+import kotlinx.coroutines.launch
+import java.io.File
 
 /**
  * The whole navigation graph.
@@ -49,12 +58,15 @@ import dev.mobileforge.feature.workspace.WorkspaceViewModel
  */
 object Routes {
     const val PROJECTS = "projects"
+    const val SETUP = "setup"
     const val SETTINGS = "settings"
     const val DIAGNOSTICS = "diagnostics"
     const val TOOLCHAINS = "toolchains"
     const val WORKSPACE = "workspace/{workspaceId}"
+    const val LARAVEL_WIZARD = "laravel/{projectName}"
 
     fun workspace(id: WorkspaceId) = "workspace/${id.value}"
+    fun laravelWizard(projectName: String) = "laravel/${Uri.encode(projectName)}"
 }
 
 @Composable
@@ -78,6 +90,31 @@ fun MobileForgeNavHost(
                 viewModel = viewModel,
                 onOpenWorkspace = { id -> navController.navigate(Routes.workspace(id)) },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                onCreateLaravel = { name -> navController.navigate(Routes.laravelWizard(name)) },
+            )
+            // First-run toolchain setup earns exactly one interruption: it fires once, only
+            // when something required is actually missing, and finishing or skipping
+            // persists dismissal — so this never nags.
+            LaunchedEffect(Unit) {
+                if (container.shouldShowSetup()) navController.navigate(Routes.SETUP)
+            }
+        }
+
+        composable(Routes.SETUP) {
+            val model: SetupViewModel = viewModel(factory = viewModelFactory {
+                SetupViewModel(
+                    container.toolchainManager,
+                    container.settingsRepository,
+                    container::embeddedBundles,
+                )
+            })
+            val scope = rememberCoroutineScope()
+            // Persist-then-leave, in that order: popping first would clear the ViewModel and
+            // could cancel the dismissal write, nagging again next launch.
+            SetupScreen(
+                viewModel = model,
+                onFinished = { scope.launch { model.finish(); navController.popBackStack() } },
+                onSkip = { scope.launch { model.skip(); navController.popBackStack() } },
             )
         }
 
@@ -110,9 +147,41 @@ fun MobileForgeNavHost(
                     workspaceId = workspaceId,
                     rawId = rawId,
                     rootPath = resolved,
+                    onOpenToolchains = { navController.navigate(Routes.TOOLCHAINS) },
                     onBack = { navController.popBackStack() },
                 )
             }
+        }
+
+        composable(
+            route = Routes.LARAVEL_WIZARD,
+            arguments = listOf(navArgument("projectName") { type = NavType.StringType }),
+        ) { entry ->
+            val name = entry.arguments?.getString("projectName")?.let(Uri::decode).orEmpty()
+            val wizardViewModel: LaravelWizardViewModel = viewModel(
+                key = "laravel-$name",
+                factory = viewModelFactory {
+                    LaravelWizardViewModel(
+                        projectName = name,
+                        workspacesRoot = container.workspacesRoot.absolutePath,
+                        repository = container.workspaceRepository,
+                        fileSystemFor = container::fileSystemFor,
+                        executor = container.oneShotExecutor,
+                        toolchain = container.toolchainManager,
+                        composerPath = "${container.runtimeEnvironment.binDir}/composer",
+                        phpPath = "${container.runtimeEnvironment.binDir}/php",
+                        networkAvailable = container::networkAvailable,
+                        freeBytes = { container.workspacesRoot.usableSpace },
+                    )
+                },
+            )
+            LaravelWizardScreen(
+                viewModel = wizardViewModel,
+                projectName = name,
+                onOpenWorkspace = { id -> navController.navigate(Routes.workspace(id)) },
+                onOpenToolchains = { navController.navigate(Routes.TOOLCHAINS) },
+                onBack = { navController.popBackStack() },
+            )
         }
 
         composable(Routes.SETTINGS) {
@@ -126,7 +195,7 @@ fun MobileForgeNavHost(
 
         composable(Routes.TOOLCHAINS) {
             val model: ToolchainViewModel = viewModel(factory = viewModelFactory {
-                ToolchainViewModel(container.toolchainManager)
+                ToolchainViewModel(container.toolchainManager, container.bundleStore)
             })
             val manifestPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) {
                 it?.let { uri -> model.selectManifest(uri.toString()) }
@@ -162,6 +231,7 @@ private fun WorkspaceRoute(
     workspaceId: WorkspaceId,
     rawId: String,
     rootPath: String,
+    onOpenToolchains: () -> Unit,
     onBack: () -> Unit,
 ) {
     val fileSystem = remember(rootPath) { container.fileSystemFor(rootPath) }
@@ -228,12 +298,34 @@ private fun WorkspaceRoute(
         },
     )
 
+    // A per-workspace, writable scratch directory for the generated nginx config, its pid and
+    // temp files. Cache is the right home: none of it is worth keeping between runs.
+    val serveWorkDir = remember(rootPath) {
+        File(File(context.cacheDir, "serve"), rawId.hashCode().toString())
+            .apply { mkdirs() }
+            .absolutePath
+    }
+
+    val serveViewModel: ServeViewModel = viewModel(
+        key = "serve-$rawId",
+        factory = viewModelFactory {
+            ServeViewModel(
+                projectRoot = rootPath,
+                processManager = container.processManager,
+                probe = container.runtimeProbe,
+                workDir = serveWorkDir,
+            )
+        },
+    )
+
     WorkspaceScreen(
         viewModel = workspaceViewModel,
         editorViewModel = editorViewModel,
         terminalViewModel = terminalViewModel,
         envViewModel = envViewModel,
         artisanViewModel = artisanViewModel,
+        serveViewModel = serveViewModel,
+        onOpenToolchains = onOpenToolchains,
         onBack = onBack,
     )
 }
@@ -256,7 +348,7 @@ private fun LoadingPane() {
 }
 
 /** Distinguishes "still loading" (null) from "no such workspace". */
-private const val MISSING_WORKSPACE = " missing"
+private const val MISSING_WORKSPACE = "missing"
 
 /**
  * Minimal ViewModel factory for constructor injection.

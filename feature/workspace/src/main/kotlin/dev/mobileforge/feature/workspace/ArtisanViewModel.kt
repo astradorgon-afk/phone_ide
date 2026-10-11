@@ -178,6 +178,7 @@ class ArtisanViewModel(
             it.copy(
                 running = true,
                 activeCommand = "php artisan ${command.argv.joinToString(" ")}",
+                liveOutput = emptyList(),
                 lastResult = null,
                 stopped = false,
                 error = null,
@@ -192,16 +193,24 @@ class ArtisanViewModel(
                         command,
                         confirmed,
                         onStarted = { liveHandle = it },
+                        // Streamed so a server shows the URL it is listening on while it runs,
+                        // rather than only after the user stops it.
+                        onLine = { _, line ->
+                            _state.update { current ->
+                                current.copy(liveOutput = (current.liveOutput + line).takeLast(MAX_LIVE_LINES))
+                            }
+                        },
                     )
                 ) {
                     is AppResult.Failure -> _state.update {
-                        it.copy(running = false, activeCommand = null, error = result.error)
+                        it.copy(running = false, activeCommand = null, liveOutput = emptyList(), error = result.error)
                     }
 
                     is AppResult.Success -> _state.update {
                         it.copy(
                             running = false,
                             activeCommand = null,
+                            liveOutput = emptyList(),
                             lastResult = result.value,
                             error = null,
                         )
@@ -228,6 +237,15 @@ class ArtisanViewModel(
     )
 }
 
+/**
+ * How much live output the running command keeps.
+ *
+ * A dev server prints a handful of lines and then goes quiet, but `queue:work` in verbose mode
+ * can print continuously. Bounded so a chatty command cannot grow the UI state without limit;
+ * the full output is still preserved in the final [ArtisanResult].
+ */
+private const val MAX_LIVE_LINES = 300
+
 /** What the probe measured about PHP. Never a guess: unknown means unknown. */
 sealed interface PhpStatus {
     data object Loading : PhpStatus
@@ -247,6 +265,14 @@ data class ArtisanUiState(
     val quickCommands: List<QuickCommand> = defaultQuickCommands(),
     val running: Boolean = false,
     val activeCommand: String? = null,
+    /**
+     * Output of the currently running command, line by line, as it arrives.
+     *
+     * Needed because a long-running command (`serve`, `queue:work`) produces its most
+     * important line — the URL it is listening on — long before it exits, and [lastResult]
+     * does not exist until it does. Cleared when the run ends so [lastResult] takes over.
+     */
+    val liveOutput: List<String> = emptyList(),
     val lastResult: ArtisanResult? = null,
     val pendingConfirmation: ArtisanCommand? = null,
     val stopped: Boolean = false,

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Bundle downloads are the app's only network traffic, and a bundle becomes executable
+  files in the app's private prefix — so cleartext is refused by default and only reopened
+  for the three addresses that cannot leave the machine:
+
+    localhost / 127.0.0.1   a bundle server running on this device, or on the development
+                            machine through `adb reverse tcp:8080 tcp:8080`
+    10.0.2.2                the Android emulator's fixed alias for its host
+
+  Android's network security config matches hosts and literal IPs, not address ranges, so
+  these are the only cleartext destinations that can be expressed here. Anything else on
+  the network must be reached over HTTPS. dev.mobileforge.runtime.toolchain.BundleUrlPolicy
+  enforces the same rule in code, so a URL it accepts is a URL the OS accepts.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>

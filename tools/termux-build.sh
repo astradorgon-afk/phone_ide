@@ -50,6 +50,29 @@ STATE="$WORK/state/$ARCH"
 
 mkdir -p "$STATE/termux-build"
 
+# A toolchain cache baked for another prefix poisons every pkg-config probe.
+#
+# The NDK toolchain setup writes a pkg-config wrapper that EXPORTS PKG_CONFIG_LIBDIR,
+# overriding the (correct) environment — and it lives in the persisted _cache, so a cache
+# created before the prefix repoint silently redirects all .pc lookups at a nonexistent
+# tree. Observed as every "checking for X options with pkg-config... no" while direct
+# link tests passed, fatal only in curl ("nghttp3 enabled without a QUIC library"). If
+# the cached wrapper does not name our prefix, drop the toolchain cache and let this
+# run regenerate it.
+# The guard is not cosmetic. `_cache` does not exist on a fresh architecture, `find` exits 1 for a
+# missing directory, and `set -o pipefail` + `set -e` then kill this script *before it prints
+# anything* — which is how the first aarch64 run failed with a bare exit code and no output. It
+# only ever worked for x86_64 because that state directory happened to exist already.
+if [ -d "$STATE/termux-build/_cache" ]; then
+    STALE_WRAPPER="$(find "$STATE/termux-build/_cache" -path '*bin/pkg-config' 2>/dev/null | head -1)"
+else
+    STALE_WRAPPER=""
+fi
+if [ -n "$STALE_WRAPPER" ] && ! grep -q "dev.mobileforge" "$STALE_WRAPPER"; then
+    echo "==> dropping stale toolchain cache (${STALE_WRAPPER}); built for another prefix"
+    rm -rf "$STATE"/termux-build/_cache/android-*
+fi
+
 # Redirect the build-work directory into the volume.
 if [ ! -L "$HOME/.termux-build" ]; then
     rm -rf "$HOME/.termux-build"

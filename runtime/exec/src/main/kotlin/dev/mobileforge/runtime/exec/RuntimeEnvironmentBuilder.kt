@@ -83,6 +83,17 @@ class RuntimeEnvironmentBuilder(
         put("LD_PRELOAD", "${environment.nativeLibraryDir}/$INTERPOSER_LIBRARY")
         put(PREFIX_VAR, prefix)
 
+        /*
+         * Where the APK's own packaged executables live.
+         *
+         * The native library directory is the only location Android still permits exec from
+         * once W^X applies, which is why it already carries the interposer. Launchers that
+         * cannot run out of $PREFIX — the musl dynamic loader opencode needs — are invoked
+         * from here, and a launcher has no other way to discover the path (it contains an
+         * install-specific token).
+         */
+        put(NATIVE_LIB_DIR_VAR, environment.nativeLibraryDir)
+
         // Caller overrides last, so a tool runtime can pin a version-specific variable.
         putAll(extra)
     }
@@ -105,5 +116,8 @@ class RuntimeEnvironmentBuilder(
 
         /** Ships in the APK native library directory, which is executable and read-only. */
         const val INTERPOSER_LIBRARY = "libmfexec.so"
+
+        /** The APK native library directory; read by launchers that must exec from there. */
+        const val NATIVE_LIB_DIR_VAR = "MOBILEFORGE_NATIVE_LIB_DIR"
     }
 }

@@ -226,7 +226,17 @@ cannot write to another app's prefix. Bundles must be built against our own pref
       other packages' files to whatever was rebuilt (an `openssl` .deb with 1453 apache2 files).
       123 suspect packages quarantined; shared-library and test-fixture guards added (2026-09-11)
 - [ ] Source-offer hosting: the URLs are recorded, but nothing serves the sources yet
-- [ ] Bundle hosting + download, resume and signature verification
+- [~] **Automatic bundle download** — the app no longer asks the user to find a manifest. A
+      catalog asset names what a build publishes; the app fetches each manifest, verifies
+      ABI/prefix/page-size/digest, refuses an incompatible bundle before its archive, then fetches
+      and installs in dependency order. Verified end to end on the emulator against a local server
+      over `adb reverse` (2026-10-10). A *clean* run (pm clear, skip the embedded setup, catalog
+      only) installed Base → PHP → Composer, and composer then actually executed — `composer
+      --version` and `create-project` — see `ComposerToolchainVerificationTest` OK (2 tests)
+      (2026-10-11). Still open: **no published host** (`base_url` is a placeholder), no download
+      resume, and **no signature verification** — the checksum proves an archive matches its
+      manifest, not who published it
+- [ ] Bundle hosting
 - [ ] `posix_spawn` interception, if any packaged tool turns out to need it
 - [ ] Restore the `warningsAsErrors` decision (ADR-007)
 
@@ -234,9 +244,17 @@ cannot write to another app's prefix. Bundles must be built against our own pref
 > end. What is missing is the software developers actually need — PHP and Node — and any build
 > at all for arm64.
 
-## Phase 3 — Laravel 🟡 Logic built and unit-tested; nothing verified on device yet
+## Phase 3 — Laravel 🟡 Laravel project creation proven end to end on the emulator; phone proof pending the arm64 build
 
-- [ ] Laravel project creation via Composer — **unblocked**: `composer-2.10.3` bundles built for x86_64 + arm64-v8a (2026-10-10); still needs on-device execution proof
+- [~] Laravel project creation via Composer — **proven in full on the emulator (2026-10-11)**:
+      a fresh catalog-only install pulled Base → PHP → Composer, and the wizard ran a real
+      `composer create-project laravel/laravel` on the network: skeleton, ~37 vendor packages,
+      `composer.lock`, `.env` with a generated `APP_KEY`, then the Artisan pane executed the tools
+      ("PHP 8.5.1 · Laravel 13.35.0"). Two defects fixed along the way — the installer now creates
+      `$PREFIX/tmp` (+ cache, var/*) that PHP's baked-in `sys_temp_dir` demands, and the runtime
+      probe's 5 s cold-start window was raised to 15 s. The arm64 bundles are built and verified
+      (base/php packaged, composer phar pristine); the same proof on the A50 waits only on the
+      phone being attached
 - [~] Artisan integration — `ArtisanCommand` (parsing, validation, risk gating) and
       `ArtisanRunner` (no shell; refuses an unconfirmed destructive command) built with 14 unit
       tests. Not yet wired to UI, not yet run against a real project
@@ -263,6 +281,14 @@ cannot write to another app's prefix. Bundles must be built against our own pref
       masked rows are not text fields so the mask can never be saved back; saves are atomic and
       byte-identical outside the edited line; read-only workspaces refuse with a Security error;
       a missing `.env` is reported plainly. 11 unit tests over the real filesystem (2026-10-10)
+- [~] **Laravel creation wizard** — `LaravelWizardViewModel` + screen in `:feature:projects`
+      behind a new `Laravel` template row: preflight (toolchain records, validated network,
+      disk), explicit consent screen, streaming download log with Stop, `.env` + app-key
+      finish, opens the workspace. 8 VM + 5 `ComposerRunner` unit tests green (2026-10-10).
+      **Ran to completion on the emulator (2026-10-11):** real `composer create-project`, skeleton
+      + vendor + `.env` + `APP_KEY`, "«name» is ready", workspace opens, Artisan pane executes
+      "PHP 8.5.1 · Laravel 13.35.0". Remaining: the same run on the A50 (arm64 bundles built and
+      verified; phone not attached yet)
 
 ## Phase 4 — Git
 

@@ -65,6 +65,7 @@ fun ProjectsScreen(
     viewModel: ProjectsViewModel,
     onOpenWorkspace: (WorkspaceId) -> Unit,
     onOpenSettings: () -> Unit,
+    onCreateLaravel: (String) -> Unit,
 ) {
     val workspaces by viewModel.workspaces.collectAsStateWithLifecycle()
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -101,7 +102,8 @@ fun ProjectsScreen(
                     icon = ForgeIcons.Folder,
                     title = "No projects yet",
                     message = "Create a project to start editing. Running PHP, Composer " +
-                        "and Git needs a toolchain, which is not bundled yet.",
+                        "and Git needs a toolchain — install it from the setup screen " +
+                        "or Settings.",
                     actionLabel = "Create project",
                     onAction = viewModel::showCreateDialog,
                     modifier = Modifier.fillMaxSize(),
@@ -126,7 +128,17 @@ fun ProjectsScreen(
     when (val dialog = state.dialog) {
         ProjectsDialog.Create -> CreateProjectDialog(
             isBusy = state.isBusy,
-            onCreate = viewModel::createProject,
+            onCreate = { name, template ->
+                // Laravel is not an instant scaffold — it downloads the framework, so it
+                // leaves the dialog for the wizard instead of creating an empty folder
+                // marked Laravel.
+                if (template == ProjectTemplate.Laravel) {
+                    viewModel.dismissDialog()
+                    onCreateLaravel(name)
+                } else {
+                    viewModel.createProject(name, template)
+                }
+            },
             onDismiss = viewModel::dismissDialog,
         )
 
@@ -268,8 +280,8 @@ private fun CreateProjectDialog(
                 Spacer(Modifier.height(10.dp))
                 // Said plainly rather than discovered later by a confused user.
                 Text(
-                    text = "Laravel and Vite scaffolding need Composer and npm, which arrive " +
-                        "with the development runtime in Phase 2.",
+                    text = "Laravel opens a guided setup instead: it downloads the real " +
+                        "framework, which needs the toolchain, a connection and a few minutes.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

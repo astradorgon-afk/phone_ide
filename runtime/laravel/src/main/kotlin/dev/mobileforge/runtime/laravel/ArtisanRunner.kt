@@ -9,6 +9,7 @@ import dev.mobileforge.runtime.api.OutputStream
 import dev.mobileforge.runtime.api.ProcessExecutor
 import dev.mobileforge.runtime.api.ProcessHandle
 import dev.mobileforge.runtime.api.ProcessSpec
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.toList
 import java.io.File
 
@@ -43,12 +44,18 @@ class ArtisanRunner(
      *
      * [onStarted] receives the live handle before output is collected, so a caller with a
      * stop button can signal it. It defaults to nothing: batch callers never need it.
+     *
+     * [onLine] receives each output line as it arrives, before the command finishes. A
+     * long-running command — `serve`, `queue:work` — would otherwise show nothing at all until
+     * it was stopped, because [ArtisanResult] is only built once the process exits. It defaults
+     * to nothing so batch callers are unaffected.
      */
     suspend fun run(
         projectRoot: String,
         command: ArtisanCommand,
         confirmed: Boolean = false,
         onStarted: (ProcessHandle) -> Unit = {},
+        onLine: ((OutputStream, String) -> Unit)? = null,
     ): AppResult<ArtisanResult> {
         if (command.requiresConfirmation && !confirmed) {
             return AppError(
@@ -92,7 +99,11 @@ class ArtisanRunner(
 
         // Collected before awaiting: a process that fills its pipe while nobody reads it will
         // block forever, and `artisan test` produces plenty of output.
-        val lines = handle.output.toList()
+        val lines = if (onLine == null) {
+            handle.output.toList()
+        } else {
+            handle.output.onEach { onLine(it.stream, it.line) }.toList()
+        }
 
         return when (val exit = handle.await()) {
             is AppResult.Failure -> exit

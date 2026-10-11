@@ -1,6 +1,7 @@
 package dev.mobileforge
 
 import android.app.Application
+import android.webkit.WebView
 import dev.mobileforge.di.AppContainer
 import dev.mobileforge.di.DefaultAppContainer
 
@@ -18,5 +19,12 @@ class MobileForgeApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         container = DefaultAppContainer(this)
+        // Debug builds only: allows chrome://inspect remote debugging of the Monaco WebView
+        // on a USB-attached machine (`adb forward tcp:9222 localabstract:chrome_devtools_remote`).
+        // Without this, a broken editor page is a black box — the exact situation that made
+        // a real-hardware boot failure undiagnosable. Never enabled in release builds.
+        if (BuildConfig.DEBUG) {
+            WebView.setWebContentsDebuggingEnabled(true)
+        }
     }
 }

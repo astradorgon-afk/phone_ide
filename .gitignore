@@ -24,6 +24,17 @@ emulator-*.log
 # Vendored third-party editor assets are fetched by tools/fetch-monaco.sh
 /app/src/main/assets/monaco/
 
+# Embedded toolchain bundles are build artifacts (tens of MB) staged from
+# build/toolchain-bundles/ — never committed. The setup flow treats their absence
+# as an honest empty state, not an error.
+app/src/main/assets/bundles/*
+!app/src/main/assets/bundles/.gitkeep
+
+# The catalog is NOT a build artifact: it is the hand-maintained list of which
+# bundles a release publishes, and the app reads it to install without asking the
+# user to find files. It is small and must be versioned.
+!app/src/main/assets/bundles/catalog.json
+
 # Never commit real secrets
 *.env
 !.env.example

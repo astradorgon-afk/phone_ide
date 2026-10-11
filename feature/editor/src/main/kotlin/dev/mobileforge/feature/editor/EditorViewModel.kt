@@ -11,6 +11,7 @@ import dev.mobileforge.feature.editor.bridge.EditorCommand
 import dev.mobileforge.feature.editor.bridge.EditorEvent
 import dev.mobileforge.feature.editor.bridge.MonacoBridge
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -76,6 +77,19 @@ class EditorViewModel(
                         )
                     }
                     pushDocument()
+                }
+            }
+        }
+        // A Monaco that never reports Ready is a permanently blank editor — observed on real
+        // hardware, where the only symptom was "I can't type". Say so loudly instead of
+        // waiting forever. Slow devices get 30 seconds; the check only fires for the file
+        // that is still open when the deadline passes. The native fallback has no WebView
+        // and so never reports Ready — it is exempt, or every file would error falsely.
+        if (!nativeEditing) {
+            viewModelScope.launch {
+                delay(BOOT_TIMEOUT_MS)
+                if (!editorReady && sequence == openSequence && _state.value.openPath != null) {
+                    _state.update { it.copy(error = bootTimeoutError()) }
                 }
             }
         }
@@ -239,9 +253,18 @@ class EditorViewModel(
         recovery = "Trust the project from the project menu to enable editing.",
     )
 
+    private fun bootTimeoutError() = AppError(
+        category = dev.mobileforge.core.common.ErrorCategory.Internal,
+        message = "The editor did not start.",
+        detail = "Monaco loaded but never reported itself ready.",
+        recovery = "Reopen the file. If it persists, please report it.",
+        retryable = true,
+    )
+
     private companion object {
         const val TAG = "EditorViewModel"
         const val CONTENT_TIMEOUT_MS = 5_000L
+        const val BOOT_TIMEOUT_MS = 30_000L
     }
 }
 

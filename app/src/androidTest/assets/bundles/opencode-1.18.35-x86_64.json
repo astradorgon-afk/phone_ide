@@ -1,0 +1,57 @@
+{
+    "id":  "opencode",
+    "display_name":  "OpenCode",
+    "version":  "1.18.35",
+    "abi":  "x86_64",
+    "prefix":  "/data/data/dev.mobileforge/files/usr",
+    "sha256":  "91df79ae2071977603f8aa96347b311566e0abcad96746fb609ca53146017cfc",
+    "size_bytes":  64050903,
+    "page_size":  4096,
+    "executables":  [
+                        "bin/opencode",
+                        "lib/opencode/opencode",
+                        "lib/opencode/libstdc++.so.6",
+                        "lib/opencode/libgcc_s.so.1",
+                        "lib/opencode/libsigsys-shim.so"
+                    ],
+    "symlinks":  {
+
+                 },
+    "components":  [
+                       {
+                           "name":  "opencode",
+                           "version":  "1.18.35",
+                           "license":  "MIT",
+                           "source_url":  "https://github.com/anomalyco/opencode"
+                       },
+                       {
+                           "name":  "bun",
+                           "version":  "1.3.14",
+                           "license":  "MIT",
+                           "source_url":  "https://github.com/oven-sh/bun"
+                       },
+                       {
+                           "name":  "musl",
+                           "version":  "1.2.6",
+                           "license":  "MIT",
+                           "source_url":  "https://musl.libc.org/"
+                       },
+                       {
+                           "name":  "libstdc++",
+                           "version":  "15.2.0",
+                           "license":  "GPL-3.0-with-GCC-exception",
+                           "source_url":  "https://gcc.gnu.org/"
+                       },
+                       {
+                           "name":  "libgcc",
+                           "version":  "15.2.0",
+                           "license":  "GPL-3.0-with-GCC-exception",
+                           "source_url":  "https://gcc.gnu.org/"
+                       }
+                   ],
+    "requires":  [
+                     "base"
+                 ],
+    "license":  "MIT",
+    "source_url":  "https://github.com/anomalyco/opencode"
+}

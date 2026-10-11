@@ -31,6 +31,12 @@ interface SettingsRepository {
     suspend fun setAutoSave(enabled: Boolean)
     suspend fun setMinimapEnabled(enabled: Boolean)
     suspend fun setCompletedFirstRun(completed: Boolean)
+
+    /**
+     * Overrides where toolchain bundles are fetched from. Null means "use the published
+     * source baked into this build" — the only case an ordinary user ever sees.
+     */
+    suspend fun setBundleSourceUrl(url: String?)
 }
 
 /**
@@ -48,6 +54,11 @@ data class AppSettings(
     val autoSave: Boolean = false,
     val minimapEnabled: Boolean = false,
     val completedFirstRun: Boolean = false,
+    /**
+     * A user-supplied bundle source (a URL), or null to use the one this build ships with.
+     * This exists for people who host their own bundles; it is not part of normal use.
+     */
+    val bundleSourceUrl: String? = null,
 )
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
@@ -66,6 +77,7 @@ class DataStoreSettingsRepository(context: Context) : SettingsRepository {
             autoSave = prefs[Keys.autoSave] ?: false,
             minimapEnabled = prefs[Keys.minimap] ?: false,
             completedFirstRun = prefs[Keys.completedFirstRun] ?: false,
+            bundleSourceUrl = prefs[Keys.bundleSourceUrl]?.takeIf { it.isNotBlank() },
         )
     }
 
@@ -98,6 +110,14 @@ class DataStoreSettingsRepository(context: Context) : SettingsRepository {
         store.edit { it[Keys.completedFirstRun] = completed }
     }
 
+    override suspend fun setBundleSourceUrl(url: String?) {
+        store.edit { prefs ->
+            val cleaned = url?.trim()?.takeIf { it.isNotEmpty() }
+            if (cleaned == null) prefs.remove(Keys.bundleSourceUrl)
+            else prefs[Keys.bundleSourceUrl] = cleaned
+        }
+    }
+
     private object Keys {
         val themeMode = stringPreferencesKey("theme_mode")
         val editorFontSize = intPreferencesKey("editor_font_size")
@@ -106,6 +126,7 @@ class DataStoreSettingsRepository(context: Context) : SettingsRepository {
         val autoSave = booleanPreferencesKey("auto_save")
         val minimap = booleanPreferencesKey("minimap")
         val completedFirstRun = booleanPreferencesKey("completed_first_run")
+        val bundleSourceUrl = stringPreferencesKey("bundle_source_url")
     }
 
     private companion object {

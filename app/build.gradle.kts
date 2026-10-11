@@ -59,6 +59,17 @@ android {
              * actually be invoked from a shell.
              */
             useLegacyPackaging = true
+
+            /*
+             * The musl dynamic loader, shipped for OpenCode.
+             *
+             * opencode is a musl-linked ET_EXEC binary. Android refuses to exec files under
+             * $PREFIX (W^X from targetSdk 29) and bionic's linker cannot load a musl loader, so
+             * the loader is packaged here — the app's native library directory is the one
+             * readable location where exec is still allowed. It must NOT be stripped: it is not
+             * a bionic library and relies on the dynamic metadata the NDK strip would drop.
+             */
+            keepDebugSymbols += "**/libldmusl.so"
         }
     }
 }
@@ -105,6 +116,9 @@ dependencies {
 
     // The toolchain verification test parses a bundle manifest from test assets.
     androidTestImplementation(libs.kotlinx.serialization.json)
+
+    // The nginx serve verification drives the real ServeLaunch specs on-device.
+    androidTestImplementation(projects.runtime.laravel)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

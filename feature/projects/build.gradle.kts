@@ -15,7 +15,12 @@ dependencies {
     implementation(projects.core.data)
     implementation(projects.core.designsystem)
 
+    // The Laravel wizard drives the runner contract and the toolchain records.
+    implementation(projects.runtime.api)
+    implementation(projects.runtime.laravel)
+
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.kotlinx.coroutines.android)

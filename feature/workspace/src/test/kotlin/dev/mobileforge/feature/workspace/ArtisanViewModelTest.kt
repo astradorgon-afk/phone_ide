@@ -30,7 +30,10 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
 
 /**
  * Artisan submission, confirmation gating and stopping, against fakes.
@@ -42,6 +45,11 @@ import org.junit.Test
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ArtisanViewModelTest {
+
+    // The runner refuses a project without an artisan file before touching the executor,
+    // so the fake project root has to be a real directory with one — exactly like a
+    // Laravel project on disk.
+    @get:Rule val temp = TemporaryFolder()
 
     private class FakeHandle(
         private val stdout: List<String> = listOf("ok"),
@@ -116,13 +124,17 @@ class ArtisanViewModelTest {
     )
 
     private fun model(
-        executor: FakeExecutor = FakeExecutor(versionResponses),
+        executor: ProcessExecutor = FakeExecutor(versionResponses),
         php: ToolStatus = phpAvailable,
-    ) = ArtisanViewModel(
-        projectRoot = "/projects/app",
-        executor = executor,
-        probe = FakeProbe(php),
-    )
+    ): ArtisanViewModel {
+        val root = temp.newFolder("app")
+        File(root, "artisan").writeText("#!/usr/bin/env php\n")
+        return ArtisanViewModel(
+            projectRoot = root.absolutePath,
+            executor = executor,
+            probe = FakeProbe(php),
+        )
+    }
 
     @Test fun `init probes PHP and reads executed versions`() = runTest(scheduler) {
         val model = model()
@@ -247,6 +259,56 @@ class ArtisanViewModelTest {
         assertThat(model.state.value.error?.category).isEqualTo(ErrorCategory.Unavailable)
         assertThat(executor.invocations).isEmpty()
     }
+
+    @Test fun `a long-running command streams output while it is still running`() =
+        runTest(scheduler) {
+            // A handle that produces its banner immediately but does not exit until told to —
+            // which is exactly a dev server, and exactly the case the old code showed nothing
+            // for until the user stopped it.
+            val exit = CompletableDeferred<Unit>()
+            val server = object : ProcessHandle {
+                override val id = ProcessId("serve")
+                override val output: Flow<ProcessOutput> = flowOf(
+                    ProcessOutput(OutputStream.Stdout, "Server running on http://127.0.0.1:8000", 0L),
+                )
+
+                override suspend fun writeStdin(text: String) = Unit.asSuccess()
+                override suspend fun signal(signal: ProcessSignal) = Unit.asSuccess()
+                override suspend fun await(): AppResult<Int> {
+                    exit.await()
+                    return 0.asSuccess()
+                }
+            }
+            val executor = object : ProcessExecutor {
+                override suspend fun start(spec: ProcessSpec): AppResult<ProcessHandle> {
+                    val key = spec.arguments.joinToString(" ")
+                    if (key == "artisan serve") return server.asSuccess()
+                    val response = versionResponses[key]
+                        ?: return AppError(ErrorCategory.Unavailable, "no response stubbed", key)
+                            .asFailure()
+                    return FakeHandle(response.first, response.second).asSuccess()
+                }
+            }
+            val model = model(executor)
+            advanceUntilIdle()
+
+            model.submit("serve")
+            runCurrent()
+
+            assertThat(model.state.value.running).isTrue()
+            assertThat(model.state.value.liveOutput)
+                .contains("Server running on http://127.0.0.1:8000")
+            // Not finished, so there is no result yet — the banner came from the live stream.
+            assertThat(model.state.value.lastResult).isNull()
+
+            exit.complete(Unit)
+            advanceUntilIdle()
+
+            assertThat(model.state.value.running).isFalse()
+            assertThat(model.state.value.liveOutput).isEmpty()
+            assertThat(model.state.value.lastResult?.stdout)
+                .containsExactly("Server running on http://127.0.0.1:8000")
+        }
 
     @Test fun `a stuck command can be stopped`() = runTest(scheduler) {
         val gate = CompletableDeferred<Unit>()

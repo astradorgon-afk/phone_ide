@@ -1,0 +1,28 @@
+{
+  "id": "composer",
+  "display_name": "Composer",
+  "version": "2.10.3",
+  "abi": "x86_64",
+  "prefix": "/data/data/dev.mobileforge/files/usr",
+  "sha256": "2a7c45befe443b5fe97d2ed3ae0363a95d8f74f1201190cbb95a3cccbcade1a5",
+  "size_bytes": 832614,
+  "page_size": 16384,
+  "executables": [
+    "bin/composer"
+  ],
+  "symlinks": {},
+  "components": [
+    {
+      "name": "composer",
+      "version": "2.10.3",
+      "license": "MIT",
+      "source_url": "https://getcomposer.org/download/2.10.3/composer.phar"
+    }
+  ],
+  "requires": [
+    "base",
+    "php"
+  ],
+  "license": "MIT",
+  "source_url": "https://getcomposer.org/download/2.10.3/composer.phar"
+}

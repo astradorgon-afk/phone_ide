@@ -171,7 +171,16 @@ class SystemLinkerRuntimeProbe(
     }
 
     private companion object {
-        const val DEFAULT_TIMEOUT_MS = 5_000L
+        /**
+         * How long a probe may take before it counts as unresponsive.
+         *
+         * 15s rather than 5s: the first invocation of a freshly installed tool is a cold start —
+         * a ~50 MB dynamically-linked binary booted under the exec interposer can take noticeably
+         * longer than 5s on an emulator or a midrange phone, and a false "incompatible with this
+         * device" verdict is far worse to hit than a short wait. A genuinely broken mechanism
+         * still gets an honest verdict after the window.
+         */
+        const val DEFAULT_TIMEOUT_MS = 15_000L
         const val MAX_PROBE_OUTPUT = 8_000
         const val SELF_TEST_TOKEN = "mobileforge_exec_ok"
     }

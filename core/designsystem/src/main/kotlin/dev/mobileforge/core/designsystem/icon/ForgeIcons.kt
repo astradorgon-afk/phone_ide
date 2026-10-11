@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -49,6 +50,7 @@ object ForgeIcons {
     val Edit: ImageVector = Icons.Filled.Edit
     val Info: ImageVector = Icons.Filled.Info
     val More: ImageVector = Icons.Filled.MoreVert
+    val Play: ImageVector = Icons.Filled.PlayArrow
     val Refresh: ImageVector = Icons.Filled.Refresh
     val Search: ImageVector = Icons.Filled.Search
     val Settings: ImageVector = Icons.Filled.Settings

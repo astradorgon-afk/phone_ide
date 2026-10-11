@@ -73,6 +73,8 @@ fun WorkspaceScreen(
     terminalViewModel: TerminalViewModel?,
     envViewModel: EnvViewModel,
     artisanViewModel: ArtisanViewModel,
+    serveViewModel: ServeViewModel,
+    onOpenToolchains: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -259,6 +261,30 @@ fun WorkspaceScreen(
                                 },
                             )
                         }
+                        // No bottom bar on wide layouts, so the Serve pane needs a way in.
+                        IconButton(
+                            onClick = {
+                                pane = if (pane == WorkspacePane.Serve) {
+                                    WorkspacePane.Editor
+                                } else {
+                                    WorkspacePane.Serve
+                                }
+                            },
+                        ) {
+                            Icon(
+                                ForgeIcons.Play,
+                                contentDescription = if (pane == WorkspacePane.Serve) {
+                                    "Show editor"
+                                } else {
+                                    "Show serve"
+                                },
+                                tint = if (pane == WorkspacePane.Serve) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
                     }
                     IconButton(onClick = viewModel::refresh) {
                         Icon(ForgeIcons.Refresh, contentDescription = "Refresh file tree")
@@ -307,6 +333,8 @@ fun WorkspaceScreen(
                                 TerminalPane(terminalViewModel)
                             } else if (pane == WorkspacePane.Artisan) {
                                 ArtisanPaneSlot(artisanViewModel, state)
+                            } else if (pane == WorkspacePane.Serve) {
+                                ServePaneSlot(serveViewModel, state, onOpenToolchains)
                             } else if (pane == WorkspacePane.Env) {
                                 EnvPaneSlot(envViewModel, editorViewModel, state, editorState)
                             } else {
@@ -320,6 +348,9 @@ fun WorkspaceScreen(
                     pane == WorkspacePane.Terminal -> TerminalPane(terminalViewModel)
 
                     pane == WorkspacePane.Artisan -> ArtisanPaneSlot(artisanViewModel, state)
+
+                    pane == WorkspacePane.Serve ->
+                        ServePaneSlot(serveViewModel, state, onOpenToolchains)
 
                     pane == WorkspacePane.Env ->
                         EnvPaneSlot(envViewModel, editorViewModel, state, editorState)
@@ -427,6 +458,7 @@ enum class WorkspacePane(val label: String) {
     Terminal("Shell"),
     Env("Env"),
     Artisan("Artisan"),
+    Serve("Serve"),
     ;
 
     @Composable
@@ -436,6 +468,7 @@ enum class WorkspacePane(val label: String) {
         Terminal -> ForgeIcons.Terminal
         Env -> ForgeIcons.Edit
         Artisan -> ForgeIcons.CheckCircle
+        Serve -> ForgeIcons.Play
     }
 }
 
@@ -454,6 +487,28 @@ private fun ArtisanPaneSlot(
         viewModel = artisanViewModel,
         isLaravel = workspaceState.facts?.framework == DetectedFramework.Laravel,
         frameworkLabel = workspaceState.facts?.framework?.displayName,
+        modifier = Modifier.fillMaxSize(),
+    )
+}
+
+/**
+ * The serve pane.
+ *
+ * Gated on the framework for the same reason the artisan pane is: both options serve a Laravel
+ * project's `public` directory, and a Node project must not be offered a button that can only
+ * fail.
+ */
+@Composable
+private fun ServePaneSlot(
+    serveViewModel: ServeViewModel,
+    workspaceState: WorkspaceUiState,
+    onOpenToolchains: () -> Unit,
+) {
+    ServePane(
+        viewModel = serveViewModel,
+        isLaravel = workspaceState.facts?.framework == DetectedFramework.Laravel,
+        frameworkLabel = workspaceState.facts?.framework?.displayName,
+        onOpenToolchains = onOpenToolchains,
         modifier = Modifier.fillMaxSize(),
     )
 }

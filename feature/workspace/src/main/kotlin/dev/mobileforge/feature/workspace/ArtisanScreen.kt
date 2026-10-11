@@ -150,20 +150,27 @@ private fun ArtisanConsole(
 
             if (state.running) {
                 item {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Text(
-                            text = state.activeCommand ?: "Running…",
-                            style = LocalForgeCodeTypography.current.codeSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.weight(1f),
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Text(
+                                text = state.activeCommand ?: "Running…",
+                                style = LocalForgeCodeTypography.current.codeSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        // A server's useful line ("Server running on …") arrives before it
+                        // exits, so it is shown here rather than waiting for the result.
+                        LiveOutput(lines = state.liveOutput)
                     }
                 }
             }
@@ -292,6 +299,18 @@ private fun ResultConsole(result: ArtisanResult, stopped: Boolean) {
         // discarded either. Streams stay apart, as the result models them.
         StreamBlock(lines = result.stdout, isStdout = true)
         StreamBlock(lines = result.stderr, isStdout = false)
+    }
+}
+
+@Composable
+private fun LiveOutput(lines: List<String>) {
+    if (lines.isEmpty()) return
+    lines.takeLast(MAX_CONSOLE_LINES).forEach { line ->
+        Text(
+            text = line,
+            style = LocalForgeCodeTypography.current.codeSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 

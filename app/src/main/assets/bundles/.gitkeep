@@ -1,0 +1,3 @@
+Bundles staged here at build time from build/toolchain-bundles/ are embedded
+into the APK and offered by the first-run setup screen. This directory is
+intentionally empty in version control — see .gitignore.

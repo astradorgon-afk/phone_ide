@@ -87,6 +87,25 @@ class MonacoBridge(
         }
     }
 
+    /**
+     * A JavaScript console message from the editor page.
+     *
+     * Without this, a Monaco boot failure is a permanently blank WebView with no trace
+     * anywhere — observed on real hardware, where the only symptom was "I can't type".
+     * Errors are surfaced as banner events (truncated; a stack dump is not UI text) and
+     * everything is logged, because a silent editor is exactly what this project refuses
+     * to ship. Never called with document content — only engine diagnostics.
+     */
+    fun reportConsole(message: String, isError: Boolean) {
+        val trimmed = message.take(MAX_CONSOLE_CHARS)
+        if (isError) {
+            logger.warn(TAG, "Editor console: $trimmed")
+            _events.tryEmit(EditorEvent.Error(trimmed))
+        } else {
+            logger.debug(TAG, "Editor console: $trimmed")
+        }
+    }
+
     /** Sends a command to the editor. Safe to call before the WebView exists — it no-ops. */
     fun send(command: EditorCommand) {
         val view = webView ?: return
@@ -103,5 +122,8 @@ class MonacoBridge(
 
     private companion object {
         const val TAG = "MonacoBridge"
+
+        /** Banner text, not a log dump: console errors can carry long stack traces. */
+        const val MAX_CONSOLE_CHARS = 500
     }
 }

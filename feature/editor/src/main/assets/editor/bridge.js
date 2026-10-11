@@ -47,6 +47,31 @@
 
   window.__mfFail = fail;
 
+  /**
+   * Sizes the editor to the window and re-lays it out, explicitly.
+   *
+   * Monaco's `automaticLayout` watches the container with a ResizeObserver — but if the
+   * page lays out while the host WebView still reports zero height (a real race on slower
+   * phones: the page loads before Compose finishes measuring), the container settles at
+   * zero, never changes again, and the observer never fires. The result is a mounted,
+   * content-bearing editor rendering into zero pixels: black screen, no input, no error.
+   * Observed on real hardware; the emulator was too fast to lose the race.
+   *
+   * Pixel height from `window.innerHeight` does not depend on the percentage-resolution
+   * chain that went stale, and every known size-change moment calls this: init, window
+   * resizes, document pushes, and document-element resizes. Idempotent by construction.
+   */
+  function fit() {
+    var container = document.getElementById('container');
+    if (!container || !editor) { return; }
+    container.style.height = window.innerHeight + 'px';
+    try {
+      editor.layout();
+    } catch (e) {
+      // A layout attempt must never take the editor down with it.
+    }
+  }
+
   window.__mfInit = function () {
     try {
       monaco.editor.defineTheme('mf-dark', {
@@ -118,6 +143,15 @@
       if (pendingOptions) { applyOptions(pendingOptions); pendingOptions = null; }
       if (pendingDocument) { applyDocument(pendingDocument); pendingDocument = null; }
 
+      // See fit(): the container may have measured zero while the host was settling.
+      if (typeof ResizeObserver !== 'undefined') {
+        new ResizeObserver(function () { fit(); }).observe(document.documentElement);
+      }
+      if (typeof window.addEventListener === 'function') {
+        window.addEventListener('resize', fit);
+      }
+      fit();
+
       post({ type: 'ready', protocolVersion: PROTOCOL_VERSION });
     } catch (e) {
       fail('Editor initialisation failed: ' + e);
@@ -138,6 +172,8 @@
     currentPath = cmd.path;
     version = 0;
     editor.setScrollTop(0);
+    // A document push is a size-change moment: the host may have settled since init.
+    fit();
   }
 
   function applyOptions(cmd) {

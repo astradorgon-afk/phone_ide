@@ -288,6 +288,35 @@ class ToolchainInstallerTest {
     }
 
     @Test
+    fun `creates the standard runtime directories with every install`() = runTest(dispatchers.io) {
+        val archive = zipOf("bin/tool" to "x")
+        val manifest = manifestFor(archive, executables = listOf("bin/tool"))
+
+        installer.install(manifest, archive, device())
+
+        // Tools assume these exist: PHP's compiled-in sys_temp_dir is `$PREFIX/tmp` (Composer
+        // dies while it is missing), the runtime environment points TMPDIR at it, and cache/
+        // var/tmp/var/cache/var/log are the standard Termux layout every package expects.
+        for (relative in listOf("tmp", "cache", "var/tmp", "var/cache", "var/log")) {
+            assertThat(File(prefix, relative).isDirectory).isTrue()
+        }
+    }
+
+    @Test
+    fun `refuses a file where a runtime directory belongs`() = runTest(dispatchers.io) {
+        File(prefix, "tmp").writeText("not a directory")
+        val archive = zipOf("bin/tool" to "x")
+        val manifest = manifestFor(archive, executables = listOf("bin/tool"))
+
+        val result = installer.install(manifest, archive, device())
+
+        assertThat(result.isSuccess).isFalse()
+        val error = (result as AppResult.Failure).error
+        assertThat(error.category).isEqualTo(ErrorCategory.FileSystem)
+        assertThat(error.detail).contains("'tmp' exists but is not a directory")
+    }
+
+    @Test
     fun `reports the installed executables with absolute paths`() = runTest(dispatchers.io) {
         val archive = zipOf("bin/tool" to "x")
         val manifest = manifestFor(archive, executables = listOf("bin/tool"))
@@ -355,8 +384,32 @@ class ToolchainInstallerTest {
     // manifest instead — which also means a hostile bundle can ask for any link it likes, so
     // the escape cases below matter as much as the happy path.
 
+    /**
+     * Skips a test on a platform that will not create a symbolic link.
+     *
+     * Windows withholds that from an ordinary user unless Developer Mode is on. The refusal
+     * tests still run everywhere — they assert a *failure* — but a test that has to observe a
+     * real link cannot pass where the operating system forbids one, and failing there would
+     * say "the installer is broken" when the truth is "the sandbox is different".
+     */
+    private fun assumeSymlinksSupported() {
+        val target = temp.newFile("symlink-probe-target")
+        val link = File(temp.root, "symlink-probe-${System.nanoTime()}")
+        val supported = try {
+            Files.createSymbolicLink(link.toPath(), target.toPath())
+            true
+        } catch (_: Exception) {
+            false
+        }
+        if (supported) Files.deleteIfExists(link.toPath())
+        org.junit.Assume.assumeTrue(
+            "This platform does not permit creating symbolic links.", supported,
+        )
+    }
+
     @Test
     fun `declared symlinks are created in the prefix`() = runTest(dispatchers.io) {
+        assumeSymlinksSupported()
         val archive = zipOf("bin/git" to "real binary")
         val manifest = manifestFor(archive, symlinks = mapOf("bin/git-receive-pack" to "git"))
 
@@ -370,6 +423,7 @@ class ToolchainInstallerTest {
 
     @Test
     fun `a symlinked executable satisfies the executables check`() = runTest(dispatchers.io) {
+        assumeSymlinksSupported()
         val archive = zipOf("bin/git" to "real binary")
         val manifest = manifestFor(
             archive,
@@ -420,6 +474,7 @@ class ToolchainInstallerTest {
     @Test
     fun `links within the prefix but through a subdirectory are allowed`() =
         runTest(dispatchers.io) {
+            assumeSymlinksSupported()
             val archive = zipOf("lib/libfoo.so.1" to "library")
             val manifest = manifestFor(archive, symlinks = mapOf("bin/libfoo.so" to "../lib/libfoo.so.1"))
 
@@ -432,6 +487,7 @@ class ToolchainInstallerTest {
     @Test
     fun `installing twice replaces an existing link rather than failing`() =
         runTest(dispatchers.io) {
+            assumeSymlinksSupported()
             val archive = zipOf("bin/git" to "real binary")
             val manifest = manifestFor(archive, symlinks = mapOf("bin/git-x" to "git"))
 
