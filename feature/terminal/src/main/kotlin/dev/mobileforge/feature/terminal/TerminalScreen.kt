@@ -11,6 +11,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -31,8 +32,10 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -70,6 +73,18 @@ fun TerminalScreen(
     val listState = rememberLazyListState()
 
     LaunchedEffect(Unit) { viewModel.start() }
+
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    // The soft keyboard only ever opens for a focused text field, and the obvious thing to tap
+    // on a terminal is the output itself. Without this the hidden field below has to be found and
+    // hit exactly, which reads as "the keyboard never appears".
+    val focusInput: () -> Unit = {
+        focusRequester.requestFocus()
+        keyboard?.show()
+        Unit
+    }
 
     // Follow new output only when the user is already at the bottom. Yanking the view down
     // while someone is reading earlier output is one of the more irritating things a terminal
@@ -111,6 +126,7 @@ fun TerminalScreen(
             palette = palette,
             listState = listState,
             onMeasured = viewModel::resize,
+            onTap = focusInput,
             modifier = Modifier.weight(1f).fillMaxWidth(),
         )
 
@@ -130,6 +146,7 @@ fun TerminalScreen(
             onSend = viewModel::send,
             onInterrupt = viewModel::interrupt,
             onEndOfFile = viewModel::sendEndOfFile,
+            focusRequester = focusRequester,
         )
     }
 }
@@ -218,6 +235,7 @@ private fun TerminalGrid(
     palette: TerminalPalette,
     listState: LazyListState,
     onMeasured: (rows: Int, cols: Int) -> Unit,
+    onTap: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val textStyle = remember {
@@ -237,14 +255,22 @@ private fun TerminalGrid(
     val cursorLineIndex = state.lines.size - state.rows + state.cursorRow
 
     Box(
-        modifier = modifier.onSizeChanged { size ->
-            if (charSize.width > 0 && charSize.height > 0) {
-                onMeasured(
-                    (size.height / charSize.height).coerceIn(MIN_ROWS, MAX_ROWS),
-                    (size.width / charSize.width).coerceIn(MIN_COLS, MAX_COLS),
-                )
+        modifier = modifier
+            .onSizeChanged { size ->
+                if (charSize.width > 0 && charSize.height > 0) {
+                    onMeasured(
+                        (size.height / charSize.height).coerceIn(MIN_ROWS, MAX_ROWS),
+                        (size.width / charSize.width).coerceIn(MIN_COLS, MAX_COLS),
+                    )
+                }
             }
-        },
+            // Tapping the output is how anyone reaches for a terminal; it should summon the
+            // keyboard rather than do nothing. No ripple: this is a text area, not a button.
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onTap,
+            ),
     ) {
         LazyColumn(
             state = listState,

@@ -10,6 +10,30 @@ the strength of reasoning alone.
 
 ---
 
+## Continuation — 2026-10-11 (the soft keyboard opens wherever you tap)
+
+**Two spots where tapping the obvious target did nothing now both raise the keyboard; measured on
+the A50 (`R58M38607WT`, Android 11, 1080×2340).**
+
+- **The terminal.** Tapping the output — the thing anyone reaches for — left the keyboard closed;
+  only an exactly-aimed hit on the one-line input field at the bottom opened it. The output grid is
+  now clickable (no ripple: it is a text area, not a button) and routes focus to the input field
+  before showing the IME. Verified: tap the grid → the grid shrinks (~7 rows) and a shell prompt
+  accepts commands.
+
+- **The Code tab.** Tapping the Monaco editor focused the *page* but never raised the keyboard.
+  The WebView is hosted in a Compose `AndroidView`, and Compose's interop focus handling leaves the
+  WebView without Android input focus: `dumpsys input_method` showed the app was never the IME's
+  served view (`mServedView=null`) even while Monaco's hidden `<textarea>` held DOM focus, so the
+  WebView's `showSoftInput` had nothing to attach to. In a plain Activity the WebView takes focus
+  on touch for free; under `AndroidView` it has to be asked. `MonacoEditorView` now sets
+  `isFocusable` / `isFocusableInTouchMode` and requests focus on touch. Verified: tap → IME shows
+  (`mIsImeShowing=true`, height 855), keystrokes land in the document (Monaco textarea `text="zqx"`,
+  the title dirty-marks `index.php *`), and the file on disk is untouched (`grep -c zqx` = 0 — saving
+  is still explicit).
+
+---
+
 ## Continuation — 2026-10-11 (the real Laravel wizard runs to completion on the emulator)
 
 **`composer create-project laravel/laravel` now completes inside the app on the emulator — the

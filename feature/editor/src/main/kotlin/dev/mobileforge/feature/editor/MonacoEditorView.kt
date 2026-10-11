@@ -105,6 +105,23 @@ fun MonacoEditorView(
                     useWideViewPort = false
                 }
 
+                // Soft-keyboard focus.
+                //
+                // A WebView hosted in an Activity takes Android input focus for itself on
+                // touch, and that is what makes the soft keyboard appear when a page's text
+                // field is tapped. Compose hosts this WebView inside an AndroidView, whose
+                // own focus handling keeps the WebView unfocused: a tap reaches Monaco (its
+                // hidden textarea takes DOM focus) but no Android view is ever the IME's
+                // served view, so the keyboard never opens and tapping the editor looks like
+                // it does nothing. Taking focus explicitly, at the moment of the touch,
+                // restores the behaviour a plain Activity gets for free.
+                isFocusable = true
+                isFocusableInTouchMode = true
+                setOnTouchListener { view, _ ->
+                    if (!view.hasFocus()) view.requestFocus()
+                    false
+                }
+
                 webViewClient = object : WebViewClient() {
                     override fun shouldInterceptRequest(
                         view: WebView,

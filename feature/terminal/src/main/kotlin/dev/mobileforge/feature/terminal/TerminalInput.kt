@@ -25,6 +25,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isAltPressed
@@ -58,6 +60,7 @@ internal fun TerminalInput(
     onSend: (String) -> Unit,
     onInterrupt: () -> Unit,
     onEndOfFile: () -> Unit,
+    focusRequester: FocusRequester,
     modifier: Modifier = Modifier,
 ) {
     var text by remember { mutableStateOf("") }
@@ -121,6 +124,7 @@ internal fun TerminalInput(
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
+                        .focusRequester(focusRequester)
                         .heightIn(min = 28.dp)
                         // Hardware keys are intercepted BEFORE the text field sees them, or
                         // Ctrl+C would type "c" and Escape would do nothing. Only keys the
