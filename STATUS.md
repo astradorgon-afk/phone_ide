@@ -10,6 +10,62 @@ the strength of reasoning alone.
 
 ---
 
+## Continuation — 2026-10-11 (the opencode TUI renders, and terminal rows line up)
+
+**Running opencode inside the app — in the emulator, since the phone is unplugged — turned up two
+defects: on x86_64 it never drew its first frame, and every full-screen program it draws would have
+been sheared by rows of unequal height. Both are fixed and measured. The bug the user could see was
+the second one; the first had to be cleared before there was anything to look at.**
+
+Three things were wrong, in the order they block you:
+
+- **`poll(2)` is trapped by Android's app seccomp policy, and the shim did not forward it.** The
+  policy is an allowlist; `poll` is not on it, because native code is expected to use `ppoll`. musl —
+  and therefore Bun — calls the plain one. `libsigsys-shim.so` forwarded the legacy *path* syscalls
+  (`open`, `stat`, `access`, `mkdir`, …) but not this one, so the trapped call was answered
+  `-ENOSYS` and Bun's event loop spun on it forever: the grid filled with
+  `sigsys-shim: syscall 7 -> -38`, RSS churned, and opencode never painted. The shim now forwards
+  `poll` to `ppoll`, which differs only by taking a `timespec` and a signal mask — and with a NULL
+  mask the kernel ignores `sigsetsize`, so the `int` timeout is converted and the calls are
+  equivalent.
+
+- **The shim wrote a line to stderr for every trapped syscall.** That was tolerable while opencode
+  was dying (it was the only output there was), but Bun makes thousands of trapped path calls while
+  booting, and on a terminal those writes interleave with a TUI's escape sequences and scribble over
+  the frame. Logging is now off unless `MF_SIGSYS_LOG` is set, which keeps it available for the next
+  seccomp hunt.
+
+- **The terminal gave every row its own height instead of one cell height.** The grid draws each row
+  as a `Text` in the system `FontFamily.Monospace`, which has no box-drawing or block glyphs; those
+  come from a fallback face whose line box is taller. So a row of text measured ~39px while a row
+  containing `█`/`▀`/`┃` measured ~45px — opencode's own logo and input border — and the LazyColumn
+  placed each row after the previous one, so lines drifted down the screen and the box-drawing
+  borders stopped meeting. Each row is now pinned to the declared `lineHeight` (16sp), and that same
+  height — not a glyph measurement — is what gets divided into the available space and reported to
+  the PTY through `TIOCSWINSZ`, so the grid drawn is the grid claimed.
+
+Verified on the emulator (`emulator-5554`, Android 11, 1080×2340, density 440):
+
+- **opencode boots and paints.** After the shim fix the terminal is silent during startup and then
+  draws the opencode TUI: the block logo, the input box (`┃ Ask anything… "What is the tech stack of
+  this project?"`), the model line (`Build · Big Pickle · OpenCode Zen`), and the status line with
+  the workspace path. `ps` shows the musl process alive; its log reaches "booting location
+  services". `models.dev` is unreachable from the emulator, which opencode records as an error and
+  continues past — the TUI itself needs no model.
+
+- **Rows are now uniform.** With the old build the grid alternated 39px and 45px rows; with the fix
+  every row's top is 44px below the previous one (`687, 731, 775, 819, …`), and opencode's input
+  border draws exactly 54 columns wide — matching the `11 54` the shell itself reports from
+  `stty size`, so the width was never the problem. What is left is opencode's own layout: it wraps
+  the full workspace path onto a second row in a 54-column terminal, which is a narrow-screen
+  layout choice, not a mis-report.
+
+The bundle shims were rebuilt for both ABIs (`tools/sigsys-shim/build.ps1`) and the two checked-in
+opencode bundles and their manifests regenerated, so the installed artifact carries the same shim as
+the source.
+
+---
+
 ## Continuation — 2026-10-11 (the Send key actually sends)
 
 **Typing into the terminal's input field and pressing Send put the text into opencode but stopped

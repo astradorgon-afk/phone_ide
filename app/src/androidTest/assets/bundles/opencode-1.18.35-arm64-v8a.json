@@ -4,8 +4,8 @@
     "version":  "1.18.35",
     "abi":  "arm64-v8a",
     "prefix":  "/data/data/dev.mobileforge/files/usr",
-    "sha256":  "a1619a1d37f408430a93222b7595cacfcb539f213178fe31a8243c8d36ff7301",
-    "size_bytes":  63548406,
+    "sha256":  "1ece9ec5422d2e858a9bd3257ac273e6f8b3fddb081ca4ae9216b39889c29e09",
+    "size_bytes":  63548509,
     "page_size":  4096,
     "executables":  [
                         "bin/opencode",

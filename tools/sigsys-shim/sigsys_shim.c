@@ -33,7 +33,9 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <ucontext.h>
 #include <unistd.h>
 
@@ -183,6 +185,24 @@ static long mf_forward(mf_frame *f)
         mf_raw6(3, fd, 0, 0, 0, 0, 0);               /* close */
         return r;
     }
+    case 7: { /* poll -> ppoll */
+        /*
+         * Android's app seccomp allowlist predates/omits the plain `poll`, which musl (and
+         * therefore Bun) calls directly, so it traps. Without this forward the trapped call
+         * returned -ENOSYS and Bun's event loop spun on it, never reaching its first frame.
+         * ppoll() differs only by taking a timespec and a signal mask; with a NULL mask the
+         * kernel ignores sigsetsize, so it is a drop-in for poll().
+         */
+        struct timespec ts;
+        struct timespec *tp = 0;
+        long ms = f->a2;
+        if (ms >= 0) {
+            ts.tv_sec = ms / 1000;
+            ts.tv_nsec = (ms % 1000) * 1000000L;
+            tp = &ts;
+        }
+        return mf_raw6(271, f->a0, f->a1, (long)tp, 0, 0, 0);
+    }
     case 132: /* utime -> utimensat (seconds -> timespec omitted; best effort) */
         return -ENOSYS;
     default:
@@ -196,11 +216,21 @@ static long mf_forward(mf_frame *f)
 #endif
 }
 
-/* Async-signal-safe decimal log of a handled trap (stderr). */
+/* Async-signal-safe decimal log of a handled trap (stderr).
+ *
+ * OFF unless MF_SIGSYS_LOG is set. The handler fires for every legacy path syscall, and Bun
+ * makes thousands of them while starting up; writing a line each time floods the controlling
+ * terminal and scribbles over the escape sequences of a full-screen TUI (OpenCode's included),
+ * which is what the user sees as a garbled screen. Keep it available for debugging only. */
+static int mf_log_enabled;
+
 static void mf_log(long nr, long ret)
 {
     char buf[64];
     int i = 0;
+    if (!mf_log_enabled) {
+        return;
+    }
     static const char prefix[] = "sigsys-shim: syscall ";
     static const char arrow[] = " -> ";
     for (size_t k = 0; k < sizeof(prefix) - 1; k++) {
@@ -286,4 +316,5 @@ static void mf_install_sigsys_handler(void)
     sa.sa_flags = SA_SIGINFO;
     sigemptyset(&sa.sa_mask);
     sigaction(SIGSYS, &sa, NULL);
+    mf_log_enabled = getenv("MF_SIGSYS_LOG") != NULL;
 }

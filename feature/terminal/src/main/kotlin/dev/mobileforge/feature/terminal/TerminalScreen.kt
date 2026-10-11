@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -35,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -242,6 +244,16 @@ private fun TerminalGrid(
         TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 16.sp)
     }
 
+    // A terminal cell is one size, for every row. The monospace face does not carry box-drawing
+    // or block glyphs, so those are supplied by a fallback font with a taller line box; if each
+    // row sizes itself, rows alternate between ~39dp and ~45dp, lines drift down the screen, and
+    // a full-screen program's borders stop meeting. Pin every row to the declared line height and
+    // report that same height to the PTY, so the grid we draw is the grid we claim.
+    val density = LocalDensity.current
+    val rowHeight = textStyle.lineHeight
+    val rowHeightPx = with(density) { rowHeight.toPx() }
+    val rowHeightDp = with(density) { rowHeight.toDp() }
+
     // Measuring one glyph is exact for a monospace font, and the resulting grid is what gets
     // reported to the PTY through TIOCSWINSZ — get it wrong and the shell wraps at the wrong
     // column.
@@ -257,10 +269,10 @@ private fun TerminalGrid(
     Box(
         modifier = modifier
             .onSizeChanged { size ->
-                if (charSize.width > 0 && charSize.height > 0) {
+                if (charSize.width > 0 && rowHeightPx > 0f) {
                     onMeasured(
-                        (size.height / charSize.height).coerceIn(MIN_ROWS, MAX_ROWS),
-                        (size.width / charSize.width).coerceIn(MIN_COLS, MAX_COLS),
+                        (size.height / rowHeightPx).toInt().coerceIn(MIN_ROWS, MAX_ROWS),
+                        (size.width / charSize.width).toInt().coerceIn(MIN_COLS, MAX_COLS),
                     )
                 }
             }
@@ -278,21 +290,26 @@ private fun TerminalGrid(
             modifier = Modifier.fillMaxSize().horizontalScroll(horizontalScroll),
         ) {
             items(state.lines.size) { index ->
-                Text(
-                    text = state.lines[index].toStyledRow(
-                        palette = palette,
-                        cursorCol = if (index == cursorLineIndex && state.isRunning &&
-                            state.cursorVisible
-                        ) {
-                            state.cursorCol
-                        } else {
-                            NO_CURSOR
-                        },
-                    ),
-                    style = textStyle,
-                    color = palette.foreground,
-                    softWrap = false,
-                )
+                Box(
+                    modifier = Modifier.height(rowHeightDp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    Text(
+                        text = state.lines[index].toStyledRow(
+                            palette = palette,
+                            cursorCol = if (index == cursorLineIndex && state.isRunning &&
+                                state.cursorVisible
+                            ) {
+                                state.cursorCol
+                            } else {
+                                NO_CURSOR
+                            },
+                        ),
+                        style = textStyle,
+                        color = palette.foreground,
+                        softWrap = false,
+                    )
+                }
             }
         }
     }
