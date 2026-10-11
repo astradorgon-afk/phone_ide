@@ -10,6 +10,35 @@ the strength of reasoning alone.
 
 ---
 
+## Continuation — 2026-10-11 (the Send key actually sends)
+
+**Typing into the terminal's input field and pressing Send put the text into opencode but stopped
+short of running it — it produced a line feed, which a raw-mode TUI reads as "insert a newline",
+not "submit". The terminal now sends a carriage return, which is what a real Enter key produces.**
+
+The IME action sent `text + "\n"`. Under a normal shell that is invisible: the line discipline runs
+ICRNL and turns the CR a real Enter emits into a newline anyway, so `\n` and `\r` are
+indistinguishable. Raw mode has no line discipline left to translate, and the program reads the byte
+itself. Full-screen TUIs (opencode among them) take CR as Enter and LF as Ctrl+J, so the Send action
+looked like it only broke the line. `TerminalInput`'s `onSend` now appends `"\r"`.
+
+Verified on the emulator (`emulator-5554`, Android 11, 1080×2340), the A50 being unplugged:
+
+- **The shell is unaffected.** Tapping the output grid raises the keyboard, and `echo HELLO` typed
+  into the field and submitted prints `HELLO` — the CR is exactly what the line discipline expects.
+- **The keyboard fixes still hold there.** Tapping the output focuses the input and shows the IME
+  (`mIsImeShowing=true`, height 780); tapping the Monaco editor on the Code tab does the same and
+  leaves its edit node focused (`index.php` loaded).
+
+The byte-level proof — that the terminal writes `0x0D` and not `0x0A` — could not be taken on the
+emulator: `stty raw` (and even `stty clocal`) is rejected there with "unable to perform all requested
+operations on standard input" — its pty refuses termios writes, so it cannot be put in raw mode to
+observe the byte. The change is one line with the mechanism above; the shell round-trip shows the
+frame is intact, and it should be re-confirmed against opencode on the phone when it is plugged back
+in.
+
+---
+
 ## Continuation — 2026-10-11 (the soft keyboard opens wherever you tap)
 
 **Two spots where tapping the obvious target did nothing now both raise the keyboard; measured on

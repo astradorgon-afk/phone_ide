@@ -115,7 +115,14 @@ internal fun TerminalInput(
                     ),
                     keyboardActions = KeyboardActions(
                         onSend = {
-                            onSend(text + "\n")
+                            // Carriage return, not line feed. A real Enter key sends CR, and
+                            // that is what the line discipline expects; but the distinction
+                            // only bites in raw mode, where there is no line discipline left to
+                            // translate it. Full-screen TUIs (opencode included) read the byte
+                            // themselves and treat CR as "submit" and LF as Ctrl+J — "insert a
+                            // newline" — so sending "\n" made the Send key look like it did
+                            // nothing but break the line.
+                            onSend(text + "\r")
                             text = ""
                         },
                     ),
