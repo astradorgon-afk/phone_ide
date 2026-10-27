@@ -106,8 +106,10 @@ fun TerminalScreen(
 
     val tabs by viewModel.tabs.collectAsStateWithLifecycle()
     val canOpen by viewModel.canOpenSession.collectAsStateWithLifecycle()
+    val refusal by viewModel.refusal.collectAsStateWithLifecycle()
 
     Column(modifier.background(palette.background).imePadding()) {
+        refusal?.let { ErrorBanner(error = it, onDismiss = {}) }
         state.error?.let { ErrorBanner(error = it, onDismiss = {}) }
 
         // Only worth the vertical space once there is a choice to make. A single-session

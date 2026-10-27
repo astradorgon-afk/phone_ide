@@ -2,12 +2,16 @@ package dev.mobileforge.feature.terminal
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.mobileforge.core.common.AppError
+import dev.mobileforge.core.model.WorkspaceTrust
+import dev.mobileforge.core.security.TrustPolicy
 import dev.mobileforge.runtime.pty.TerminalSession
 import dev.mobileforge.runtime.pty.TerminalUiState
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -27,11 +31,21 @@ import kotlinx.coroutines.launch
  * so a single-session terminal forces the user to stop the server to type anything. Sessions are
  * capped at [MAX_SESSIONS] because each is a real process with a real PTY, and an unbounded
  * number of them on a phone is a resource problem rather than a feature.
+ *
+ * A shell is the most direct way to run anything, so no session opens in a workspace that is not
+ * trusted. The check is here, where sessions are created, and not only in the screen that hosts
+ * the terminal: the screen hides the pane for a restricted project, but a view model that can
+ * start a process has to refuse on its own account rather than rely on being kept out of sight.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class TerminalViewModel(
     private val newSession: () -> TerminalSession,
     private val shellCommand: ShellCommand,
+    /**
+     * The workspace's trust, read each time a session would open. Required, with no default: a
+     * view model that can start a shell must have been told whether it may.
+     */
+    private val trust: StateFlow<WorkspaceTrust>,
 ) : ViewModel() {
 
     private class Entry(val id: Int, val session: TerminalSession) {
@@ -41,6 +55,11 @@ class TerminalViewModel(
     private val entries = MutableStateFlow<List<Entry>>(emptyList())
     private val activeId = MutableStateFlow(NO_SESSION)
     private var nextId = 1
+
+    private val _refusal = MutableStateFlow<AppError?>(null)
+
+    /** Why no shell was opened, or null. Shown by the screen so a refusal is never a blank pane. */
+    val refusal: StateFlow<AppError?> = _refusal.asStateFlow()
 
     /** The active session's screen. Switching tabs switches which PTY this follows. */
     val state: StateFlow<TerminalUiState> =
@@ -78,6 +97,12 @@ class TerminalViewModel(
     /** Opens an additional session and makes it active. */
     fun openSession() {
         if (entries.value.size >= MAX_SESSIONS) return
+        // Every session goes through here — start(), the new-tab button, and the fresh session
+        // that replaces a closed last one — so this is the single gate. `newSession` is not even
+        // called on refusal: no PTY is created for a project that may not run one.
+        val refusal = TrustPolicy.executionRefusal(trust.value)
+        _refusal.value = refusal
+        if (refusal != null) return
         val entry = Entry(id = nextId++, session = newSession())
         entries.value = entries.value + entry
         activeId.value = entry.id

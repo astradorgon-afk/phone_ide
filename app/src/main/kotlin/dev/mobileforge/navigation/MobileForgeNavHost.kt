@@ -275,6 +275,7 @@ private fun WorkspaceRoute(
                 TerminalViewModel(
                     newSession = container::newTerminalSession,
                     shellCommand = command,
+                    trust = workspaceViewModel.trust,
                 )
             },
         )
@@ -294,6 +295,7 @@ private fun WorkspaceRoute(
                 projectRoot = rootPath,
                 executor = container.oneShotExecutor,
                 probe = container.runtimeProbe,
+                trust = workspaceViewModel.trust,
             )
         },
     )
@@ -313,6 +315,7 @@ private fun WorkspaceRoute(
                 projectRoot = rootPath,
                 processManager = container.processManager,
                 probe = container.runtimeProbe,
+                trust = workspaceViewModel.trust,
                 workDir = serveWorkDir,
             )
         },
