@@ -33,9 +33,16 @@ install gives a user, `[code]`:
 4. No native toolchain: the Android sandbox has no compiler, so anything needing `node-gyp` or a C
    build cannot work regardless.
 
-Suggested fixes, in order: ship a bundle host (#5) and add git/node (#3); prompt for the toolchain
-on first launch when none is installed (a banner in the empty Projects/Workspace state, not only
-the embedded-bundles gate); then a minimal "Run script" picker over `package.json` / `composer.json`.
+Suggested fixes, in order: ship a bundle host (#5) and add git/node (#3); then a minimal
+"Run script" picker over `package.json` / `composer.json`.
+
+**Done (point 1, discoverability only):** the Projects screen and the Shell pane now show a notice
+with an **Install** button, straight to Toolchains, whenever the required tools (base, PHP,
+Composer) are measurably missing. It is measured each time the screen appears, so it clears after
+an install; an unreadable installed list shows nothing rather than a false alarm. The logic
+(`missingRequiredToolchains`) has 6 unit tests; the app builds and lint is clean. **This does not
+make anything build** — Install still fails in a release build until a host exists (#5) — it only
+stops the failure being a silent dead end. Not seen on a device; no instrumented test.
 **Not yet ruled in or out:** whether the reporter hit the restricted-mode panes (an imported or
 "Open restricted" project gets no Shell/Artisan/Serve — see #2).
 

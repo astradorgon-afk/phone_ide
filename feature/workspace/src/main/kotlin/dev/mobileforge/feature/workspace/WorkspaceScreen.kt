@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mobileforge.core.designsystem.component.EmptyState
 import dev.mobileforge.core.designsystem.component.ErrorBanner
+import dev.mobileforge.core.designsystem.component.NoticeBanner
 import dev.mobileforge.core.designsystem.icon.ForgeIcons
 import dev.mobileforge.core.designsystem.theme.LocalForgeCodeTypography
 import dev.mobileforge.core.model.DetectedFramework
@@ -74,6 +75,8 @@ fun WorkspaceScreen(
     envViewModel: EnvViewModel,
     artisanViewModel: ArtisanViewModel,
     serveViewModel: ServeViewModel,
+    /** True only when the required tools are measurably not installed; see `missingToolchains`. */
+    toolchainMissing: Boolean,
     onOpenToolchains: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -330,7 +333,13 @@ fun WorkspaceScreen(
                         VerticalDivider()
                         Box(Modifier.weight(1f).fillMaxHeight()) {
                             if (pane == WorkspacePane.Terminal) {
-                                TerminalPane(terminalViewModel, state.isReadOnly, viewModel::trustWorkspace)
+                                TerminalPane(
+    terminalViewModel,
+    state.isReadOnly,
+    viewModel::trustWorkspace,
+    toolchainMissing,
+    onOpenToolchains,
+)
                             } else if (pane == WorkspacePane.Artisan) {
                                 ArtisanPaneSlot(artisanViewModel, state, viewModel::trustWorkspace)
                             } else if (pane == WorkspacePane.Serve) {
@@ -345,7 +354,13 @@ fun WorkspaceScreen(
 
                     pane == WorkspacePane.Explorer -> ExplorerPane(state, viewModel, selectFile)
 
-                    pane == WorkspacePane.Terminal -> TerminalPane(terminalViewModel, state.isReadOnly, viewModel::trustWorkspace)
+                    pane == WorkspacePane.Terminal -> TerminalPane(
+    terminalViewModel,
+    state.isReadOnly,
+    viewModel::trustWorkspace,
+    toolchainMissing,
+    onOpenToolchains,
+)
 
                     pane == WorkspacePane.Artisan -> ArtisanPaneSlot(artisanViewModel, state, viewModel::trustWorkspace)
 
@@ -582,6 +597,8 @@ private fun TerminalPane(
     terminalViewModel: TerminalViewModel?,
     restricted: Boolean,
     onTrust: () -> Unit,
+    toolchainMissing: Boolean,
+    onInstallTools: () -> Unit,
 ) {
     if (restricted) {
         // Checked before the view model is touched: composing TerminalScreen is what starts the
@@ -596,7 +613,22 @@ private fun TerminalPane(
             modifier = Modifier.fillMaxSize(),
         )
     } else {
-        TerminalScreen(viewModel = terminalViewModel, modifier = Modifier.fillMaxSize())
+        Column(Modifier.fillMaxSize()) {
+            // Without this a fresh install is a dead end: the shell is Android's own sh, `php`
+            // answers "not found", and nothing says the tools are a separate install.
+            if (toolchainMissing) {
+                NoticeBanner(
+                    message = "Developer tools (PHP, Composer) aren't fully installed, so " +
+                        "commands like php and composer will say \"not found\".",
+                    actionLabel = "Install",
+                    onAction = onInstallTools,
+                )
+            }
+            TerminalScreen(
+                viewModel = terminalViewModel,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            )
+        }
     }
 }
 

@@ -86,11 +86,17 @@ fun MobileForgeNavHost(
                     )
                 },
             )
+            // Measured each time this screen appears, so coming back from Toolchains after an
+            // install clears the notice without any extra signalling.
+            var toolchainMissing by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) { toolchainMissing = container.missingToolchains().isNotEmpty() }
             ProjectsScreen(
                 viewModel = viewModel,
                 onOpenWorkspace = { id -> navController.navigate(Routes.workspace(id)) },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 onCreateLaravel = { name -> navController.navigate(Routes.laravelWizard(name)) },
+                toolchainMissing = toolchainMissing,
+                onOpenToolchains = { navController.navigate(Routes.TOOLCHAINS) },
             )
             // First-run toolchain setup earns exactly one interruption: it fires once, only
             // when something required is actually missing, and finishing or skipping
@@ -321,6 +327,10 @@ private fun WorkspaceRoute(
         },
     )
 
+    // Same measurement as the Projects screen, taken when the workspace appears.
+    var toolchainMissing by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { toolchainMissing = container.missingToolchains().isNotEmpty() }
+
     WorkspaceScreen(
         viewModel = workspaceViewModel,
         editorViewModel = editorViewModel,
@@ -328,6 +338,7 @@ private fun WorkspaceRoute(
         envViewModel = envViewModel,
         artisanViewModel = artisanViewModel,
         serveViewModel = serveViewModel,
+        toolchainMissing = toolchainMissing,
         onOpenToolchains = onOpenToolchains,
         onBack = onBack,
     )

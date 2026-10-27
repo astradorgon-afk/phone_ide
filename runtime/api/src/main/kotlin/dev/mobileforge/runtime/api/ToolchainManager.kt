@@ -43,6 +43,19 @@ data class ToolchainRecord(
 val REQUIRED_TOOLCHAIN_IDS: List<String> = listOf("base", "php", "composer")
 
 /**
+ * The required toolchain ids that are not among [installedIds], in install order.
+ *
+ * Empty means everything required is present. The order is kept so a caller that wants to say
+ * what to install first can. It answers only "is it there", which is why the screens that call it
+ * through the container treat an unreadable installed list as "unknown" and say nothing, rather
+ * than reporting every tool as missing.
+ */
+fun missingRequiredToolchains(installedIds: Collection<String>): List<String> {
+    val installed = installedIds.toSet()
+    return REQUIRED_TOOLCHAIN_IDS.filter { it !in installed }
+}
+
+/**
  * A toolchain bundle shipped inside the APK, ready to install without a download.
  *
  * The document references are opaque URIs the [ToolchainManager] implementation opens —
