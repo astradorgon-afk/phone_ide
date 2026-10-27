@@ -64,15 +64,23 @@ class ArtisanViewModel(
     private var liveHandle: ProcessHandle? = null
 
     init {
-        // Re-probes whenever execution becomes allowed or stops being allowed, so the versions
+        // Probes once at the start, and again when execution becomes allowed, so the versions
         // that were withheld from an untrusted project appear as soon as the user trusts it.
         // The first emission is the current value, which replaces the unconditional probe that
         // used to run here.
+        //
+        // Losing trust deliberately does not re-probe: there is nothing new to read, and
+        // refreshTool clears the error — which would wipe the refusal a blocked command had
+        // just put there, leaving the user with a command that silently did nothing.
         viewModelScope.launch {
+            var first = true
             trust
                 .map { TrustPolicy.executionRefusal(it) == null }
                 .distinctUntilChanged()
-                .collect { refreshTool() }
+                .collect { allowed ->
+                    if (first || allowed) refreshTool()
+                    first = false
+                }
         }
     }
 

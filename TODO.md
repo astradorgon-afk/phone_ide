@@ -27,17 +27,41 @@ Phase 2a/2b-iii/3.
   proof could not be taken on the emulator.
 - `bash tools/verify-runtime.sh` on hardware (ROADMAP "Confirm on physical arm64").
 
-### 2. Enforce workspace trust on the terminal, Artisan and Serve — S–M  `[code]`
-**The trust policy exists and is unit-tested, but nothing consumes it.** `allowsExecution`,
-`TrustPolicy` and `CapabilityCeiling` are referenced only from tests. `MobileForgeNavHost.kt:267-281`
-builds the shell and `TerminalViewModel` with no trust condition, and `ArtisanViewModel` /
-`ServeViewModel` take no trust input. So an "Open restricted" project can still open a shell, run
-Artisan, start a server, or launch opencode.
+### 2. Enforce workspace trust on the terminal, Artisan and Serve — S–M  **DONE in code; not yet seen on a device**
+**Was:** the trust policy existed and was unit-tested, but nothing consumed it (`allowsExecution`,
+`TrustPolicy` and `CapabilityCeiling` were referenced only from tests), so an "Open restricted"
+project could open a shell, run Artisan, start a server, or launch opencode — against SECURITY.md
+§6 and RISK-011.
 
-SECURITY.md §6 says untrusted ⇒ "Run commands ❌" and RISK-011 says "enforced from Phase 2". Only
-file writes are gated (via the read-only filesystem). Low practical exposure today because there
-is no in-app clone, but it must land **before Git clone (#7)** and any AI tool use (#11).
-Add a UI test alongside `NavigationAndTrustUiTest`.
+**Now:** `TrustPolicy.executionRefusal` is the one question; `TerminalViewModel`,
+`ArtisanViewModel` and `ServeViewModel` take a required `trust` flow (no default) and refuse with a
+Security error where a process would start. A restricted project sees a "restricted" notice with a
+Trust action in place of those panes. `WorkspaceViewModel.trust` is `Untrusted` until the
+workspace has loaded. Artisan's version readout is withheld too: `php artisan --version` boots the
+app and so runs the project's service providers.
+
+**Verified:** 68 tests in `:core:security`, 28 in `:feature:terminal`, 46 in `:feature:workspace`,
+0 failures (run on JVM, this session). `:app:compileDebugKotlin` and
+`:app:compileDebugAndroidTestKotlin` compile. The test run found and fixed a real defect: a
+re-probe on trust change was clearing the refusal error.
+
+**Not verified:**
+- The new on-device UI test (`restrictedModeWithholdsTheShellUntilTheProjectIsTrusted`) compiles
+  but has **not been run** — there is no emulator here. Run it, and look at the Shell, Artisan
+  and Serve panes of an "Open restricted" project by hand.
+- No trust-gate behaviour was exercised against a real PTY or process, only fakes.
+
+**Follow-ups this surfaced** (not done):
+- **File writes are a UI-level gate, not a structural one.** My earlier version of this item said
+  they were gated "via the read-only filesystem" — wrong. The screen passes a `readOnly` flag
+  into the editor and `.env` view models; `LocalWorkspaceFileSystem` knows nothing about trust.
+  Make the filesystem (or the object `fileSystemFor` returns) trust-aware.
+- Trust can only be raised in the app; there is no revoke. If one is added, sessions already open
+  must be terminated — the gate only stops new ones.
+- Denials are not logged at `SECURITY` level the way path denials are; these view models have no
+  logger.
+- Package install, network and git push are not separate gates (see SECURITY.md §6). Git push
+  (#7) needs its own.
 
 ### 3. Put git and node/npm in the download catalog — S–M  `[code]`
 Git 2.55.0, Node and npm 11.19.1 are built and device-verified, but `catalog.json` lists only
