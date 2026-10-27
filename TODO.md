@@ -14,6 +14,31 @@ so no test, lint or device result below is new. "Confirmed in code" means read, 
 
 ## P0 — Needed before anyone other than the author can use the app
 
+### Reported 2026-10-27: "when I actually use the IDE it can't build anything" — diagnosis, awaiting detail
+"Build" has not been pinned down yet (what was tried, what happened). What the code says a fresh
+install gives a user, `[code]`:
+1. **There is nothing to build with.** `app/src/main/assets/bundles/` holds only `catalog.json`, so
+   no toolchain is embedded, and `shouldShowSetup()` returns `false` when nothing is embedded — a
+   new install is **never prompted** to install one. The Toolchains download points at
+   `bundles.mobileforge.dev` in a release build (the host does not exist, #5) and at
+   `http://127.0.0.1:8080` in a debug build (needs a PC running `tools/serve-bundles.ps1` plus
+   `adb reverse`). Away from the dev PC, no PHP, Composer, Node, npm or Git ever arrives; the shell
+   is Android's own toybox `sh`.
+2. **Node, npm and Git cannot be installed from the app at all** (#3), so nothing JavaScript can
+   build even with a host.
+3. **There is no build, run or scripts affordance in the UI.** The workspace has six panes (Files,
+   Code, Shell, Env, Artisan, Serve); nothing reads `package.json` scripts or offers
+   `composer install` / `npm run build`. Building means typing it in the Shell. The only "Build" in
+   Settings is the app's own version row.
+4. No native toolchain: the Android sandbox has no compiler, so anything needing `node-gyp` or a C
+   build cannot work regardless.
+
+Suggested fixes, in order: ship a bundle host (#5) and add git/node (#3); prompt for the toolchain
+on first launch when none is installed (a banner in the empty Projects/Workspace state, not only
+the embedded-bundles gate); then a minimal "Run script" picker over `package.json` / `composer.json`.
+**Not yet ruled in or out:** whether the reporter hit the restricted-mode panes (an imported or
+"Open restricted" project gets no Shell/Artisan/Serve — see #2).
+
 ### 1. Run the whole toolchain on the Galaxy A50 (arm64) — M
 Every arm64 bundle (base, php, composer, nginx, opencode) is built and structurally verified but
 **has never been executed.** All execution proof is the x86_64 emulator. `[docs]` STATUS, ROADMAP
@@ -136,10 +161,21 @@ provider-reported usage/cost only. Criteria 19–25. Depends on #2.
 
 ## P2 — Hardening and known gaps
 
-### 12. Continuous integration — S–M  `[code]`
-There is no `.github/` directory and no CI of any kind. 42 unit-test files and 21 instrumented
-ones exist. At minimum run unit tests and lint on every push; the `Aligned16KB` lint error is a
-real guard (it caught a shipped bug) and should not depend on someone remembering to run it.
+### 12. Continuous integration — S–M  **DONE; the workflow itself has not run on GitHub**
+`.github/workflows/ci.yml`: a **Unit tests** job (`./gradlew test`) and a **Debug build and lint**
+job (`:app:assembleDebug lintDebug`, which carries the `Aligned16KB` guard), on push to `main`,
+pull requests, and manual dispatch.
+
+**Verified here, by running the same commands:** `gradlew test` → 548 tests across 12 modules,
+0 failures; `:app:assembleDebug` built a 34 MB debug APK with the native libraries for all three
+ABIs (64-bit ones confirmed 16 KB-aligned); `lintDebug` → 0 errors, 3 warnings.
+**Not verified:** the YAML parses, but GitHub has not executed it, so a wrong action input or
+version would only show on the first run. Actions are pinned to major tags, not commit SHAs.
+
+Things CI had to deal with, found by doing it: `gradlew` was committed non-executable (now mode
+`100755`), and an ASCII-locale runner could not compile `EnvViewModelTest` because a test name
+contained an em dash (renamed; proved by building under an `ANSI_X3.4-1968` locale). Not covered
+by CI: the 21 instrumented tests (need an emulator) — that is still manual.
 
 ### 13. Install guard rails at execution time — M  `[docs]`
 `composer install` / `npm install` run arbitrary lifecycle scripts (RISK-015). The classifier
@@ -177,13 +213,18 @@ loaded `libmfexec` / `libmfpty` or any bundle (RISK-004).
 
 ## P3 — Docs and UI text that contradict the code (cheap; the project's own rule is "nothing pretends")
 
-### 19. Wrong "not implemented" text in the app — S  `[code]`
-- `Diagnostics.kt:87-92` reports **"Interactive terminal — Not implemented"** and
-  **"Toolchain — binaries are not bundled yet"**. Both are false; the terminal and toolchain
-  work.
-- `SettingsScreen.kt:149-154` shows build `0.2.0-phase2a` and "PHP, Node and Git are not bundled."
-- `SetupScreen.kt` / `SetupViewModel.kt` "not bundled in this build — import it from…" wording,
-  and the projects empty-state text that STATUS.md already calls stale.
+### 19. Wrong "not implemented" text in the app — S  **DONE; unit-tested, not seen on a device**
+- Diagnostics: the Toolchain and Interactive terminal rows are now **derived from measurement**
+  (what the probe found; whether the PTY library loaded) instead of hard-coded, so they cannot go
+  stale again. A partial install names what is installed and what is missing. The Git row now says
+  the in-app Git UI is Phase 4 but the `git` command runs in the terminal once installed.
+  9 unit tests in `DiagnosticsSubsystemTest`.
+- Settings: the Build row reads the installed package's version instead of a typed copy, and the
+  "not bundled" paragraph is replaced. Setup screen wording changed from "not bundled in this
+  build — import it" to "not included in the app itself — install it from Toolchains".
+- `versionName` in `app/build.gradle.kts` still says `0.2.0-phase2a`; bumping it is the owner's
+  call, so it was left alone — it now at least shows the real value.
+- The projects empty-state text was already accurate; left as is.
 
 ### 20. SECURITY.md is out of date — S  `[code]`
 §8 says Phase 1 requests zero permissions and `INTERNET` is not requested. The manifest now

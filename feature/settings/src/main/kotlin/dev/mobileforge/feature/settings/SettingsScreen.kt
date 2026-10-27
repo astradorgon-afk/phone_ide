@@ -26,6 +26,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -134,7 +136,7 @@ fun SettingsScreen(
 
             item { SectionHeader("Development runtime") }
             item {
-                NavigationRow(title = "Toolchains", subtitle = "Import bundles and inspect installed tools",
+                NavigationRow(title = "Toolchains", subtitle = "Download, import and inspect developer tools",
                     onClick = onOpenToolchains)
             }
             item { SectionHeader("About") }
@@ -146,12 +148,22 @@ fun SettingsScreen(
                 )
             }
             item {
-                SettingRow(title = "Build", subtitle = "0.2.0-phase2a · IDE shell + execution core") {}
+                val context = LocalContext.current
+                // Read from the installed package rather than typed here: a hard-coded copy of
+                // the version is exactly the string that goes stale. It still said "phase2a" and
+                // "execution core" long after the Laravel work landed.
+                val versionName = remember(context) {
+                    @Suppress("DEPRECATION")
+                    runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }
+                        .getOrNull()
+                }
+                SettingRow(title = "Build", subtitle = versionName ?: "unknown") {}
             }
             item {
                 Text(
-                    text = "The IDE shell and interactive terminal are available. Import compatible " +
-                        "toolchain bundles to add developer commands. PHP, Node and Git are not bundled.",
+                    text = "Developer tools such as PHP, Composer, Node and Git are not part of the " +
+                        "app itself; they are installed from Toolchains. Diagnostics shows what is " +
+                        "installed and working on this device.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),

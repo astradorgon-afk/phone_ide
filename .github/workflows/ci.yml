@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same ref makes an older run pointless; don't spend runner minutes on it.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Sources are UTF-8 but a runner's default locale need not be. A non-ASCII test name once
+  # became an unwritable class file on an ASCII locale and failed the build (the name has since
+  # been made ASCII). This keeps the build independent of the runner's locale regardless.
+  LC_ALL: C.UTF-8
+
+jobs:
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # Android library modules compile against the platform jar even when only their JVM tests run.
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-36 build-tools;36.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # `test` runs every module's unit tests. --continue reports all failing modules at once
+      # instead of stopping at the first.
+      - name: Unit tests
+        run: ./gradlew test --console=plain --continue
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: "**/build/reports/tests/**"
+          retention-days: 7
+
+  build-and-lint:
+    name: Debug build and lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # The NDK and CMake versions are pinned by the project (KotlinCommon.kt, runtime/pty), and
+      # the native libraries are only built by a real assemble, so this job installs them.
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-36 build-tools;36.0.0 ndk;29.0.13113456 cmake;3.22.1"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # lintDebug is deliberate. It carries the Aligned16KB check, promoted to an error after
+      # libmfexec.so and libmfpty.so shipped without 16 KB page alignment and would not have
+      # loaded on a 16 KB-page device. Nothing else in the test suite can catch that, because the
+      # emulator uses 4 KB pages.
+      - name: Assemble debug APK and lint
+        run: ./gradlew :app:assembleDebug lintDebug --console=plain
+
+      - name: Upload lint reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-reports
+          path: "**/build/reports/lint-results-*.html"
+          retention-days: 7

@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -61,6 +62,25 @@ class TerminalViewModel(
     /** Why no shell was opened, or null. Shown by the screen so a refusal is never a blank pane. */
     val refusal: StateFlow<AppError?> = _refusal.asStateFlow()
 
+    /** Set once the screen has asked for a shell, so a late grant of trust can still deliver it. */
+    private var shellRequested = false
+
+    init {
+        // The pane asks for a shell once, when it appears. If that request is refused because
+        // trust was not yet known to be granted, nothing would ever ask again and the user would
+        // be left with a blank terminal on a project that is in fact trusted. So a standing
+        // request is honoured the moment execution becomes allowed. Only a request: a shell is
+        // never opened that nobody asked for.
+        viewModelScope.launch {
+            trust
+                .map { TrustPolicy.executionRefusal(it) == null }
+                .distinctUntilChanged()
+                .collect { allowed ->
+                    if (allowed && shellRequested && entries.value.isEmpty()) openSession()
+                }
+        }
+    }
+
     /** The active session's screen. Switching tabs switches which PTY this follows. */
     val state: StateFlow<TerminalUiState> =
         combine(entries, activeId) { list, id -> list.firstOrNull { it.id == id } }
@@ -90,6 +110,7 @@ class TerminalViewModel(
      * configuration changes; starting a second shell each rotation would be a slow leak.
      */
     fun start() {
+        shellRequested = true
         if (entries.value.isNotEmpty()) return
         openSession()
     }

@@ -349,6 +349,7 @@ class DefaultAppContainer(context: Context) : AppContainer {
             dispatchers = dispatchers,
             execSelfTest = { systemLinkerProbe.selfTest().summary },
             webViewStatus = { WebViewCompatibility.check(appContext).summary },
+            terminalSupported = { ptyLauncher.isSupported },
         )
     }
 

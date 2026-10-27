@@ -200,6 +200,33 @@ class TerminalSessionsTest {
     }
 
     @Test
+    fun `a shell requested before trust arrives opens by itself once it does`() {
+        // The pane asks once, when it appears. If that lands a moment before trust is known to
+        // be granted, the user must not be left with a blank terminal on a trusted project.
+        val trust = MutableStateFlow(WorkspaceTrust.Untrusted)
+        val model = viewModel(trust)
+        model.start()
+        assertThat(model.tabs.value).isEmpty()
+
+        trust.value = WorkspaceTrust.Trusted
+
+        assertThat(model.tabs.value).hasSize(1)
+        assertThat(model.refusal.value).isNull()
+        assertThat(sessionsCreated).isEqualTo(1)
+    }
+
+    @Test
+    fun `granting trust opens no shell that nobody asked for`() {
+        val trust = MutableStateFlow(WorkspaceTrust.Untrusted)
+        val model = viewModel(trust)
+
+        trust.value = WorkspaceTrust.Trusted
+
+        assertThat(model.tabs.value).isEmpty()
+        assertThat(sessionsCreated).isEqualTo(0)
+    }
+
+    @Test
     fun `losing trust stops the replacement session that closing the last one would open`() {
         val trust = MutableStateFlow(WorkspaceTrust.Trusted)
         val model = viewModel(trust)
