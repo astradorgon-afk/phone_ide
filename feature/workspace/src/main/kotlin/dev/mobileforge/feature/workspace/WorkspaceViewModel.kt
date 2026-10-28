@@ -13,8 +13,12 @@ import dev.mobileforge.core.model.WorkspaceFile
 import dev.mobileforge.core.model.WorkspaceId
 import dev.mobileforge.core.model.WorkspaceTrust
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -35,6 +39,20 @@ class WorkspaceViewModel(
 
     private val _state = MutableStateFlow(WorkspaceUiState())
     val state: StateFlow<WorkspaceUiState> = _state.asStateFlow()
+
+    /**
+     * The trust level the shell, Artisan and Serve view models read before they run anything.
+     *
+     * Derived from the loaded workspace, and [WorkspaceTrust.Untrusted] until there is one: a row
+     * that has not been read yet, or could not be, must never be mistaken for a trusted project.
+     * Those view models take this as a flow rather than a value so that pressing "Trust" in the
+     * banner takes effect at once, and read `.value` at the moment they act so a stale answer
+     * can only ever be the cautious one.
+     */
+    val trust: StateFlow<WorkspaceTrust> = _state
+        .map { it.workspace?.trust ?: WorkspaceTrust.Untrusted }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, WorkspaceTrust.Untrusted)
 
     init {
         load()

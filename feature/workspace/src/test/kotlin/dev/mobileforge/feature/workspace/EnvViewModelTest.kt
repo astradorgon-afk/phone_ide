@@ -116,7 +116,9 @@ class EnvViewModelTest {
             assertThat(model.state.value.error).isNull()
         }
 
-    @Test fun `a save with no edits writes identical bytes — the mask never reaches disk`() =
+    // ASCII only in the name: a test's name becomes a class file name, and a non-ASCII one fails
+    // to compile on any machine whose locale is not UTF-8 (a stock CI runner, a Docker image).
+    @Test fun `a save with no edits writes identical bytes so the mask never reaches disk`() =
         runTest(scheduler) {
             val before = "APP_KEY=base64:abc==\nDB_PASSWORD=hunter2\n"
             File(temp.root, ".env").writeText(before)

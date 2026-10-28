@@ -5,7 +5,9 @@ import androidx.lifecycle.viewModelScope
 import dev.mobileforge.core.common.AppError
 import dev.mobileforge.core.common.AppResult
 import dev.mobileforge.core.common.ErrorCategory
+import dev.mobileforge.core.model.WorkspaceTrust
 import dev.mobileforge.core.security.CommandRisk
+import dev.mobileforge.core.security.TrustPolicy
 import dev.mobileforge.runtime.api.DevTool
 import dev.mobileforge.runtime.api.ProcessExecutor
 import dev.mobileforge.runtime.api.ProcessHandle
@@ -20,6 +22,8 @@ import dev.mobileforge.runtime.laravel.LaravelVersions
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -35,11 +39,22 @@ import kotlinx.coroutines.launch
  * install reports [PhpStatus.Missing] with its reason instead of failing every command
  * mysteriously. Versions likewise come from executed tools ([LaravelVersions]), never from
  * composer.json.
+ *
+ * Nothing here runs in a workspace that is not trusted ([trust]). That covers the commands the
+ * user types and also the version readout, which looks passive but runs `php artisan --version`
+ * — and that boots the application, so a hostile project's service providers would execute just
+ * because the pane was created. The probe of PHP itself touches only the toolchain, not the
+ * project, and is unaffected.
  */
 class ArtisanViewModel(
     private val projectRoot: String,
     private val executor: ProcessExecutor,
     private val probe: RuntimeCapabilityProbe,
+    /**
+     * The workspace's trust, read at the moment of acting. Required, with no default: a view
+     * model that can run commands must have been told whether it may.
+     */
+    private val trust: StateFlow<WorkspaceTrust>,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ArtisanUiState())
@@ -49,7 +64,24 @@ class ArtisanViewModel(
     private var liveHandle: ProcessHandle? = null
 
     init {
-        refreshTool()
+        // Probes once at the start, and again when execution becomes allowed, so the versions
+        // that were withheld from an untrusted project appear as soon as the user trusts it.
+        // The first emission is the current value, which replaces the unconditional probe that
+        // used to run here.
+        //
+        // Losing trust deliberately does not re-probe: there is nothing new to read, and
+        // refreshTool clears the error — which would wipe the refusal a blocked command had
+        // just put there, leaving the user with a command that silently did nothing.
+        viewModelScope.launch {
+            var first = true
+            trust
+                .map { TrustPolicy.executionRefusal(it) == null }
+                .distinctUntilChanged()
+                .collect { allowed ->
+                    if (first || allowed) refreshTool()
+                    first = false
+                }
+        }
     }
 
     /** Re-probes PHP. Safe to call after installing the toolchain without leaving the pane. */
@@ -61,9 +93,15 @@ class ArtisanViewModel(
                     _state.update {
                         it.copy(php = PhpStatus.Ready(status.version, status.absolutePath))
                     }
-                    val versions = runCatching {
-                        LaravelVersions(executor, status.absolutePath).read(projectRoot)
-                    }.getOrNull()
+                    // Checked here, after the probe's suspension, so the answer used is the one
+                    // current when the project would be touched, not when the refresh began.
+                    val versions = if (TrustPolicy.executionRefusal(trust.value) == null) {
+                        runCatching {
+                            LaravelVersions(executor, status.absolutePath).read(projectRoot)
+                        }.getOrNull()
+                    } else {
+                        null
+                    }
                     _state.update { it.copy(versions = versions) }
                 }
 
@@ -118,6 +156,13 @@ class ArtisanViewModel(
      */
     fun submit(input: String) {
         if (_state.value.running) return
+        // Before parsing, so a restricted project always hears "restricted" and never "that is
+        // not a usable command", and before the confirmation dialog, so the user is not asked to
+        // approve something that cannot run.
+        TrustPolicy.executionRefusal(trust.value)?.let { refusal ->
+            _state.update { it.copy(error = refusal, pendingConfirmation = null) }
+            return
+        }
         val command = ArtisanCommand.parse(input)
         if (command == null) {
             _state.update { it.copy(error = unusableCommandError(input)) }
@@ -169,6 +214,12 @@ class ArtisanViewModel(
     }
 
     private fun execute(command: ArtisanCommand, confirmed: Boolean) {
+        // The one place a process starts, so the gate holds even for a command that was queued
+        // behind a confirmation dialog before the project's trust changed.
+        TrustPolicy.executionRefusal(trust.value)?.let { refusal ->
+            _state.update { it.copy(error = refusal) }
+            return
+        }
         val phpPath = (_state.value.php as? PhpStatus.Ready)?.path
         if (phpPath == null) {
             _state.update { it.copy(error = phpMissingError()) }

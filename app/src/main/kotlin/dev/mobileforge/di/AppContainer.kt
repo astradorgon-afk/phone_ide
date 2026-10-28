@@ -35,6 +35,7 @@ import dev.mobileforge.runtime.api.ProcessExecutor
 import dev.mobileforge.runtime.api.ProcessSpec
 import dev.mobileforge.runtime.api.ProcessStatus
 import dev.mobileforge.runtime.api.REQUIRED_TOOLCHAIN_IDS
+import dev.mobileforge.runtime.api.missingRequiredToolchains
 import dev.mobileforge.runtime.ShellCommandFactory
 import dev.mobileforge.runtime.pty.NativePtyLauncher
 import dev.mobileforge.runtime.pty.PtyLauncher
@@ -114,6 +115,16 @@ interface AppContainer {
      * something required is still missing. Anything less would nag on every launch.
      */
     suspend fun shouldShowSetup(): Boolean
+
+    /**
+     * Required toolchains that are measurably not installed, in install order.
+     *
+     * Empty when everything is present — and also when the installed list could not be read,
+     * because a notice that says "nothing is installed" must be backed by a successful read, not
+     * by a failure to look. This is what lets a person who typed `php` and got "not found" be
+     * told why, instead of finding the Toolchains screen by accident.
+     */
+    suspend fun missingToolchains(): List<String>
 
     val diagnosticsProvider: DiagnosticsProvider
 
@@ -325,6 +336,12 @@ class DefaultAppContainer(context: Context) : AppContainer {
         return REQUIRED_TOOLCHAIN_IDS.any { it !in installed }
     }
 
+    override suspend fun missingToolchains(): List<String> {
+        val installed = (toolchainManager.installed() as? AppResult.Success)?.value
+            ?: return emptyList()
+        return missingRequiredToolchains(installed.map { it.id })
+    }
+
     override val ptyLauncher: PtyLauncher by lazy { NativePtyLauncher() }
 
     override val shellCommandFactory: ShellCommandFactory by lazy {
@@ -349,6 +366,7 @@ class DefaultAppContainer(context: Context) : AppContainer {
             dispatchers = dispatchers,
             execSelfTest = { systemLinkerProbe.selfTest().summary },
             webViewStatus = { WebViewCompatibility.check(appContext).summary },
+            terminalSupported = { ptyLauncher.isSupported },
         )
     }
 

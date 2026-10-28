@@ -109,6 +109,37 @@ class NavigationAndTrustUiTest {
         }
     }
 
+    @Test
+    fun restrictedModeWithholdsTheShellUntilTheProjectIsTrusted() {
+        val workspace = untrustedWorkspace()
+        openProject(workspace)
+        compose.onNodeWithText("Open restricted").performClick()
+        compose.waitUntil(TIMEOUT) {
+            compose.onAllNodesWithText(RESTRICTED_BANNER).fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // The bottom bar's Shell tab. A restricted project must get an explanation and a way
+        // forward here — not a live prompt, and not a blank pane that looks broken.
+        compose.onNodeWithText("Shell").performClick()
+        compose.onNodeWithText(SHELL_WITHHELD).assertIsDisplayed()
+        compose.onNodeWithText("Trust this project").assertIsDisplayed()
+        assert(storedTrust(workspace.id) == WorkspaceTrust.Untrusted) {
+            "Viewing the withheld shell must not change stored trust, but it became " +
+                "${storedTrust(workspace.id)}"
+        }
+
+        compose.onNodeWithText("Trust this project").performClick()
+
+        compose.waitUntil(TIMEOUT) {
+            compose.onAllNodesWithText(SHELL_WITHHELD).fetchSemanticsNodes().isEmpty()
+        }
+        assertTextAbsent(RESTRICTED_BANNER)
+        assert(storedTrust(workspace.id) == WorkspaceTrust.Trusted) {
+            "Trusting from the shell pane must be persisted, but the stored value was " +
+                "${storedTrust(workspace.id)}"
+        }
+    }
+
     // --- Helpers ------------------------------------------------------------------
 
     private fun untrustedWorkspace(): Workspace = runBlocking {
@@ -152,5 +183,6 @@ class NavigationAndTrustUiTest {
     private companion object {
         const val TIMEOUT = 15_000L
         const val RESTRICTED_BANNER = "Restricted mode — read only"
+        const val SHELL_WITHHELD = "The shell is off in restricted mode"
     }
 }

@@ -1,5 +1,7 @@
 package dev.mobileforge.core.security
 
+import dev.mobileforge.core.common.AppError
+import dev.mobileforge.core.common.ErrorCategory
 import dev.mobileforge.core.model.WorkspaceTrust
 
 /**
@@ -9,6 +11,32 @@ import dev.mobileforge.core.model.WorkspaceTrust
  * what a grant can mean; it is not itself a grant.
  */
 object TrustPolicy {
+
+    /**
+     * Why this workspace may not run anything, or null when it may.
+     *
+     * Every place that starts a process on a workspace's behalf — the shell, Artisan, a dev
+     * server — asks this at the moment it acts and refuses with the returned error. One question
+     * with one answer, so the gates cannot drift apart: the UI explaining a restricted pane and
+     * the view model refusing to run are reading the same ceiling.
+     *
+     * "Running" includes anything that executes the project's own code. `php artisan --version`
+     * looks like a harmless read, but it boots the application and so runs the project's service
+     * providers; it is execution for the purposes of this check.
+     */
+    fun executionRefusal(trust: WorkspaceTrust): AppError? =
+        if (ceilingFor(trust).canExecuteCommands) {
+            null
+        } else {
+            AppError(
+                category = ErrorCategory.Security,
+                message = "This project is open in restricted mode.",
+                detail = "Untrusted projects cannot run commands, open a shell or start a " +
+                    "server: a project you did not write can carry scripts that run the " +
+                    "moment they are executed.",
+                recovery = "Trust the project if you know where it came from, then try again.",
+            )
+        }
 
     fun ceilingFor(trust: WorkspaceTrust): CapabilityCeiling = when (trust) {
         WorkspaceTrust.Untrusted -> CapabilityCeiling(
