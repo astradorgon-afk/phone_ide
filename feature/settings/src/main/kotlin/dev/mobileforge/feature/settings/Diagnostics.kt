@@ -46,10 +46,18 @@ class DefaultDiagnosticsProvider(
      * engine version is not something a user can otherwise discover.
      */
     private val webViewStatus: () -> String = { "Not checked." },
+    /**
+     * Whether the native PTY library loaded: true, false, or null if nobody checked.
+     *
+     * Injected for the same reason as [webViewStatus] — this module does not depend on
+     * `:runtime:pty`. Null is a real answer and is reported as "not checked", never as working.
+     */
+    private val terminalSupported: () -> Boolean? = { null },
 ) : DiagnosticsProvider {
 
     override suspend fun collect(): DiagnosticsReport = withContext(dispatchers.io) {
-        val tools = runtimeProbe.probeAll().map { (tool, status) ->
+        val probed = runtimeProbe.probeAll()
+        val tools = probed.map { (tool, status) ->
             ToolReport(name = tool.displayName, status = status.describe())
         }
 
@@ -82,17 +90,17 @@ class DefaultDiagnosticsProvider(
                     SubsystemState.Available,
                     "System-linker exec — see the Execution section above",
                 ),
+                // Both of these read "not implemented" for a long time after they were built,
+                // which is the one thing this screen must never do. They are now derived from
+                // what was measured, so they cannot go stale the same way.
+                toolchainSubsystem(probed),
+                terminalSubsystem(terminalSupported()),
                 SubsystemReport(
-                    "Toolchain (PHP, Node, Git)",
+                    "Git",
                     SubsystemState.NotImplemented,
-                    "Phase 2b — binaries are not bundled yet",
+                    "In-app Git is Phase 4 — the git command itself runs in the terminal once " +
+                        "it is installed",
                 ),
-                SubsystemReport(
-                    "Interactive terminal",
-                    SubsystemState.NotImplemented,
-                    "Phase 2b — needs a PTY, which pipes cannot provide",
-                ),
-                SubsystemReport("Git", SubsystemState.NotImplemented, "Phase 4"),
                 SubsystemReport("AI providers", SubsystemState.NotImplemented, "Phase 5"),
                 SubsystemReport("Extensions", SubsystemState.NotImplemented, "Phase 8"),
             ),
@@ -123,6 +131,60 @@ class DefaultDiagnosticsProvider(
             ),
         )
     }
+}
+
+/** The tools a developer reaches for — as opposed to the shell, which every device has. */
+private val TOOLCHAIN_TOOLS =
+    listOf(DevTool.Php, DevTool.Composer, DevTool.Node, DevTool.Npm, DevTool.Git)
+
+private const val TOOLCHAIN_ROW = "Toolchain (PHP, Node, Git)"
+private const val TERMINAL_ROW = "Interactive terminal"
+
+/**
+ * The toolchain row, from what the probe actually found.
+ *
+ * "Available" means every tool answered a version query. Anything less is [SubsystemState.Degraded]
+ * and names what is missing, because "something is missing" is not an actionable sentence. A tool
+ * the probe reports as unsupported counts as missing here; the reason is in the tool list above.
+ */
+internal fun toolchainSubsystem(probed: Map<DevTool, ToolStatus>): SubsystemReport {
+    val ready = TOOLCHAIN_TOOLS.filter { probed[it] is ToolStatus.Available }
+    val missing = TOOLCHAIN_TOOLS - ready.toSet()
+    fun names(tools: List<DevTool>) = tools.joinToString(", ") { it.displayName }
+    return when {
+        missing.isEmpty() ->
+            SubsystemReport(TOOLCHAIN_ROW, SubsystemState.Available, "${names(ready)} all run")
+
+        ready.isEmpty() -> SubsystemReport(
+            TOOLCHAIN_ROW,
+            SubsystemState.Degraded,
+            "Nothing installed yet — install it from Settings → Toolchains",
+        )
+
+        else -> SubsystemReport(
+            TOOLCHAIN_ROW,
+            SubsystemState.Degraded,
+            "Installed: ${names(ready)} · Missing: ${names(missing)} — add them from " +
+                "Settings → Toolchains",
+        )
+    }
+}
+
+/** The terminal row. Unknown is reported as unknown, never as working. */
+internal fun terminalSubsystem(supported: Boolean?): SubsystemReport = when (supported) {
+    true -> SubsystemReport(
+        TERMINAL_ROW,
+        SubsystemState.Available,
+        "Real pseudo-terminal (forkpty)",
+    )
+
+    false -> SubsystemReport(
+        TERMINAL_ROW,
+        SubsystemState.Degraded,
+        "The native terminal library could not be loaded for this CPU architecture",
+    )
+
+    null -> SubsystemReport(TERMINAL_ROW, SubsystemState.Degraded, "Not checked")
 }
 
 private fun ToolStatus.describe(): String = when (this) {

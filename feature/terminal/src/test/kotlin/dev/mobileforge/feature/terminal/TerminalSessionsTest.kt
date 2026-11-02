@@ -2,7 +2,9 @@ package dev.mobileforge.feature.terminal
 
 import com.google.common.truth.Truth.assertThat
 import dev.mobileforge.core.common.AppDispatchers
+import dev.mobileforge.core.common.ErrorCategory
 import dev.mobileforge.core.common.NoOpLogger
+import dev.mobileforge.core.model.WorkspaceTrust
 import dev.mobileforge.runtime.pty.PtyLauncher
 import dev.mobileforge.runtime.pty.PtyProcess
 import dev.mobileforge.runtime.pty.TerminalSession
@@ -10,6 +12,8 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -153,10 +157,101 @@ class TerminalSessionsTest {
         assertThat(model.tabs.value).hasSize(1)
     }
 
+    // --- Workspace trust ----------------------------------------------------------
+    //
+    // A shell is the most direct way to run anything, so a project that has not been trusted gets
+    // none. `sessionsCreated` counts calls to `newSession`: on refusal it must stay at zero, since
+    // a PTY that was opened and then hidden is still a process running in the project.
+
+    @Test
+    fun `an untrusted project opens no shell and says why`() {
+        val model = viewModel(MutableStateFlow(WorkspaceTrust.Untrusted))
+
+        model.start()
+
+        assertThat(model.tabs.value).isEmpty()
+        assertThat(sessionsCreated).isEqualTo(0)
+        assertThat(model.refusal.value?.category).isEqualTo(ErrorCategory.Security)
+    }
+
+    @Test
+    fun `an untrusted project cannot open an additional session either`() {
+        val model = viewModel(MutableStateFlow(WorkspaceTrust.Untrusted))
+
+        model.openSession()
+        model.openSession()
+
+        assertThat(model.tabs.value).isEmpty()
+        assertThat(sessionsCreated).isEqualTo(0)
+    }
+
+    @Test
+    fun `trusting the project lets the shell open and clears the refusal`() {
+        val trust = MutableStateFlow(WorkspaceTrust.Untrusted)
+        val model = viewModel(trust)
+        model.start()
+        assertThat(model.refusal.value).isNotNull()
+
+        trust.value = WorkspaceTrust.Trusted
+        model.start()
+
+        assertThat(model.tabs.value).hasSize(1)
+        assertThat(model.refusal.value).isNull()
+    }
+
+    @Test
+    fun `a shell requested before trust arrives opens by itself once it does`() {
+        // The pane asks once, when it appears. If that lands a moment before trust is known to
+        // be granted, the user must not be left with a blank terminal on a trusted project.
+        val trust = MutableStateFlow(WorkspaceTrust.Untrusted)
+        val model = viewModel(trust)
+        model.start()
+        assertThat(model.tabs.value).isEmpty()
+
+        trust.value = WorkspaceTrust.Trusted
+
+        assertThat(model.tabs.value).hasSize(1)
+        assertThat(model.refusal.value).isNull()
+        assertThat(sessionsCreated).isEqualTo(1)
+    }
+
+    @Test
+    fun `granting trust opens no shell that nobody asked for`() {
+        val trust = MutableStateFlow(WorkspaceTrust.Untrusted)
+        val model = viewModel(trust)
+
+        trust.value = WorkspaceTrust.Trusted
+
+        assertThat(model.tabs.value).isEmpty()
+        assertThat(sessionsCreated).isEqualTo(0)
+    }
+
+    @Test
+    fun `losing trust stops the replacement session that closing the last one would open`() {
+        val trust = MutableStateFlow(WorkspaceTrust.Trusted)
+        val model = viewModel(trust)
+        model.start()
+        val only = model.tabs.value.single().id
+
+        trust.value = WorkspaceTrust.Untrusted
+        model.closeSession(only)
+
+        // Normally closing the last session opens a fresh one; that path must not slip past.
+        assertThat(model.tabs.value).isEmpty()
+        assertThat(sessionsCreated).isEqualTo(1)
+        assertThat(model.refusal.value?.category).isEqualTo(ErrorCategory.Security)
+    }
+
     // --- Helpers ------------------------------------------------------------------
 
-    private fun viewModel() = TerminalViewModel(
+    private var sessionsCreated = 0
+
+    // Trusted by default so the bookkeeping tests above are about bookkeeping.
+    private fun viewModel(
+        trust: StateFlow<WorkspaceTrust> = MutableStateFlow(WorkspaceTrust.Trusted),
+    ) = TerminalViewModel(
         newSession = {
+            sessionsCreated++
             TerminalSession(
                 launcher = RefusingLauncher,
                 dispatchers = TestDispatchers(dispatcher),
@@ -170,6 +265,7 @@ class TerminalSessionsTest {
             environment = emptyMap(),
             displayName = "sh",
         ),
+        trust = trust,
     )
 
     private object RefusingLauncher : PtyLauncher {

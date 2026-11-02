@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mobileforge.core.designsystem.component.EmptyState
 import dev.mobileforge.core.designsystem.component.ErrorBanner
+import dev.mobileforge.core.designsystem.component.NoticeBanner
 import dev.mobileforge.core.designsystem.icon.ForgeIcons
 import dev.mobileforge.core.designsystem.theme.LocalForgeCodeTypography
 import dev.mobileforge.core.model.DetectedFramework
@@ -74,6 +75,8 @@ fun WorkspaceScreen(
     envViewModel: EnvViewModel,
     artisanViewModel: ArtisanViewModel,
     serveViewModel: ServeViewModel,
+    /** True only when the required tools are measurably not installed; see `missingToolchains`. */
+    toolchainMissing: Boolean,
     onOpenToolchains: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -330,11 +333,17 @@ fun WorkspaceScreen(
                         VerticalDivider()
                         Box(Modifier.weight(1f).fillMaxHeight()) {
                             if (pane == WorkspacePane.Terminal) {
-                                TerminalPane(terminalViewModel)
+                                TerminalPane(
+    terminalViewModel,
+    state.isReadOnly,
+    viewModel::trustWorkspace,
+    toolchainMissing,
+    onOpenToolchains,
+)
                             } else if (pane == WorkspacePane.Artisan) {
-                                ArtisanPaneSlot(artisanViewModel, state)
+                                ArtisanPaneSlot(artisanViewModel, state, viewModel::trustWorkspace)
                             } else if (pane == WorkspacePane.Serve) {
-                                ServePaneSlot(serveViewModel, state, onOpenToolchains)
+                                ServePaneSlot(serveViewModel, state, onOpenToolchains, viewModel::trustWorkspace)
                             } else if (pane == WorkspacePane.Env) {
                                 EnvPaneSlot(envViewModel, editorViewModel, state, editorState)
                             } else {
@@ -345,12 +354,18 @@ fun WorkspaceScreen(
 
                     pane == WorkspacePane.Explorer -> ExplorerPane(state, viewModel, selectFile)
 
-                    pane == WorkspacePane.Terminal -> TerminalPane(terminalViewModel)
+                    pane == WorkspacePane.Terminal -> TerminalPane(
+    terminalViewModel,
+    state.isReadOnly,
+    viewModel::trustWorkspace,
+    toolchainMissing,
+    onOpenToolchains,
+)
 
-                    pane == WorkspacePane.Artisan -> ArtisanPaneSlot(artisanViewModel, state)
+                    pane == WorkspacePane.Artisan -> ArtisanPaneSlot(artisanViewModel, state, viewModel::trustWorkspace)
 
                     pane == WorkspacePane.Serve ->
-                        ServePaneSlot(serveViewModel, state, onOpenToolchains)
+                        ServePaneSlot(serveViewModel, state, onOpenToolchains, viewModel::trustWorkspace)
 
                     pane == WorkspacePane.Env ->
                         EnvPaneSlot(envViewModel, editorViewModel, state, editorState)
@@ -452,6 +467,27 @@ private fun RestrictedBanner(onTrust: () -> Unit) {
     }
 }
 
+/**
+ * What a pane that runs code shows while the project is restricted.
+ *
+ * Says what is being withheld and why, and offers the same Trust action as the banner — a user
+ * who tapped "Shell" and found a blank rectangle would conclude the app was broken. The view
+ * models behind these panes refuse independently; this is the explanation, not the control.
+ */
+@Composable
+private fun RestrictedPane(what: String, onTrust: () -> Unit) {
+    EmptyState(
+        icon = ForgeIcons.Warning,
+        title = "$what is off in restricted mode",
+        message = "This project is not trusted, so it cannot run commands, open a shell or " +
+            "start a server. A project you did not write can carry scripts that run the " +
+            "moment they are executed. You can still browse and read every file.",
+        actionLabel = "Trust this project",
+        onAction = onTrust,
+        modifier = Modifier.fillMaxSize(),
+    )
+}
+
 enum class WorkspacePane(val label: String) {
     Explorer("Files"),
     Editor("Code"),
@@ -482,7 +518,12 @@ enum class WorkspacePane(val label: String) {
 private fun ArtisanPaneSlot(
     artisanViewModel: ArtisanViewModel,
     workspaceState: WorkspaceUiState,
+    onTrust: () -> Unit,
 ) {
+    if (workspaceState.isReadOnly) {
+        RestrictedPane(what = "Artisan", onTrust = onTrust)
+        return
+    }
     ArtisanPane(
         viewModel = artisanViewModel,
         isLaravel = workspaceState.facts?.framework == DetectedFramework.Laravel,
@@ -503,7 +544,12 @@ private fun ServePaneSlot(
     serveViewModel: ServeViewModel,
     workspaceState: WorkspaceUiState,
     onOpenToolchains: () -> Unit,
+    onTrust: () -> Unit,
 ) {
+    if (workspaceState.isReadOnly) {
+        RestrictedPane(what = "Servers", onTrust = onTrust)
+        return
+    }
     ServePane(
         viewModel = serveViewModel,
         isLaravel = workspaceState.facts?.framework == DetectedFramework.Laravel,
@@ -547,8 +593,18 @@ private fun EnvPaneSlot(
  * rather than shown as an empty black rectangle.
  */
 @Composable
-private fun TerminalPane(terminalViewModel: TerminalViewModel?) {
-    if (terminalViewModel == null) {
+private fun TerminalPane(
+    terminalViewModel: TerminalViewModel?,
+    restricted: Boolean,
+    onTrust: () -> Unit,
+    toolchainMissing: Boolean,
+    onInstallTools: () -> Unit,
+) {
+    if (restricted) {
+        // Checked before the view model is touched: composing TerminalScreen is what starts the
+        // shell, so a restricted project must never reach it.
+        RestrictedPane(what = "The shell", onTrust = onTrust)
+    } else if (terminalViewModel == null) {
         EmptyState(
             icon = ForgeIcons.Terminal,
             title = "Terminal unavailable",
@@ -557,7 +613,22 @@ private fun TerminalPane(terminalViewModel: TerminalViewModel?) {
             modifier = Modifier.fillMaxSize(),
         )
     } else {
-        TerminalScreen(viewModel = terminalViewModel, modifier = Modifier.fillMaxSize())
+        Column(Modifier.fillMaxSize()) {
+            // Without this a fresh install is a dead end: the shell is Android's own sh, `php`
+            // answers "not found", and nothing says the tools are a separate install.
+            if (toolchainMissing) {
+                NoticeBanner(
+                    message = "Developer tools (PHP, Composer) aren't fully installed, so " +
+                        "commands like php and composer will say \"not found\".",
+                    actionLabel = "Install",
+                    onAction = onInstallTools,
+                )
+            }
+            TerminalScreen(
+                viewModel = terminalViewModel,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            )
+        }
     }
 }
 

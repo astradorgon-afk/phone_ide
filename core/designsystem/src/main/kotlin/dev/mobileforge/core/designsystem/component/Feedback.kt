@@ -15,6 +15,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -98,6 +99,50 @@ fun ErrorBanner(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(16.dp),
             )
+        }
+    }
+}
+
+/**
+ * A calm notice with one optional action.
+ *
+ * For a state that is neither an error nor a reason to block: something the person would want to
+ * know and can act on. It stays exactly as long as the state is true, and unlike [ErrorBanner] has
+ * no dismiss button — hiding "the tools you are trying to use are not installed" would only
+ * move the confusion. It is a row, not a dialog, so it never interrupts.
+ */
+@Composable
+fun NoticeBanner(
+    message: String,
+    modifier: Modifier = Modifier,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = ForgeIcons.Info,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        if (actionLabel != null && onAction != null) {
+            Spacer(Modifier.width(8.dp))
+            TextButton(onClick = onAction) {
+                Text(actionLabel, style = MaterialTheme.typography.labelMedium)
+            }
         }
     }
 }

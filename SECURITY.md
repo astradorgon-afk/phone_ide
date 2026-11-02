@@ -146,6 +146,32 @@ been browsed, indexed or read by an agent, a prompt is too late.
 `CapabilityCeiling` defaults every flag to **denied**, so a capability added later fails closed
 rather than open. There is a test asserting exactly that.
 
+### Where each row is actually enforced
+
+The table is the ceiling. This is what consults it — a ceiling nothing reads is documentation,
+and for a while the "Run commands" row was exactly that.
+
+| Capability | Enforced by | How |
+|---|---|---|
+| Run commands | `TerminalViewModel`, `ArtisanViewModel`, `ServeViewModel` | Each asks `TrustPolicy.executionRefusal` at the moment a process would start and refuses with a Security error. The trust flow is a required constructor parameter with no default, so an unwired caller does not compile. The Shell, Artisan and Serve panes are replaced by a "restricted" notice with a Trust action. |
+| Write / delete files | the editor and `.env` view models | A read-only flag the screen passes in. **The filesystem layer is not trust-aware**, so this is a UI-level gate, not a structural one. |
+| Install packages, network, git push | not enforced as separate rows | Covered today only because the shell is gated and nothing else does them on a workspace's behalf. Git does not exist in-app yet (Phase 4); when it does it needs its own gate. |
+
+Three properties worth knowing:
+
+* **It fails closed.** `WorkspaceViewModel.trust` is `Untrusted` until the workspace row has been
+  read, and stays so if it cannot be. A project that is trusted on disk still reads as untrusted
+  for the moments before it loads.
+* **"Reading" a Laravel project can be execution.** `php artisan --version` boots the
+  application, so it runs the project's service providers. The Artisan pane therefore withholds
+  its version readout until the project is trusted; the check is on the readout, not only on the
+  Run button. Probing PHP itself touches only the toolchain and is unaffected.
+* **Stop is never gated.** A user must always be able to stop a server that is running.
+
+Known gaps: trust is only ever raised in the app today — there is no way to revoke it — so a
+session that is already open is not terminated if trust were lost; the gate only stops new ones.
+That is unreachable now and becomes real the day revocation is added.
+
 ---
 
 ## 7. Command risk classification — implemented
@@ -195,6 +221,8 @@ Stated plainly so nobody mistakes a design for a control:
 * Agent permission **enforcement** (designed; Phase 5)
 * Extension sandboxing (designed; Phase 8)
 * Git credential handling (Phase 4)
+* A structural file-write gate: today the read-only state reaches the editor and `.env` view
+  models as a flag from the screen, and `LocalWorkspaceFileSystem` itself knows nothing about trust
 * Package-install guard rails at execution time (Phase 2/3)
 * Process isolation between concurrent workspaces (Phase 2)
 

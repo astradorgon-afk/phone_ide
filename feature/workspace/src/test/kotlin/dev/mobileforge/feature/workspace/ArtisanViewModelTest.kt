@@ -6,6 +6,7 @@ import dev.mobileforge.core.common.AppResult
 import dev.mobileforge.core.common.ErrorCategory
 import dev.mobileforge.core.common.asFailure
 import dev.mobileforge.core.common.asSuccess
+import dev.mobileforge.core.model.WorkspaceTrust
 import dev.mobileforge.runtime.api.DevTool
 import dev.mobileforge.runtime.api.OutputStream
 import dev.mobileforge.runtime.api.ProcessExecutor
@@ -20,6 +21,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -123,9 +126,12 @@ class ArtisanViewModelTest {
         "artisan --version" to (listOf("Laravel Framework 11.9.2") to 0),
     )
 
+    // Trusted unless a test says otherwise, so the behavioural tests below keep their meaning;
+    // the trust tests pass their own flow so they can change it mid-test.
     private fun model(
         executor: ProcessExecutor = FakeExecutor(versionResponses),
         php: ToolStatus = phpAvailable,
+        trust: StateFlow<WorkspaceTrust> = MutableStateFlow(WorkspaceTrust.Trusted),
     ): ArtisanViewModel {
         val root = temp.newFolder("app")
         File(root, "artisan").writeText("#!/usr/bin/env php\n")
@@ -133,6 +139,7 @@ class ArtisanViewModelTest {
             projectRoot = root.absolutePath,
             executor = executor,
             probe = FakeProbe(php),
+            trust = trust,
         )
     }
 
@@ -329,5 +336,123 @@ class ArtisanViewModelTest {
         advanceUntilIdle()
         assertThat(model.state.value.running).isFalse()
         assertThat(model.state.value.lastResult?.exitCode).isEqualTo(143)
+    }
+
+    // --- Workspace trust ---------------------------------------------------------------
+    //
+    // An untrusted project is one the user has not vouched for, so nothing may run in it. The
+    // assertions that carry weight are all "the executor was never called": a refusal that
+    // still launched the process would be worse than no refusal at all.
+
+    @Test fun `an untrusted project runs no command and says why`() = runTest(scheduler) {
+        val executor = FakeExecutor(versionResponses + ("artisan about" to (listOf("Env") to 0)))
+        val model = model(executor, trust = MutableStateFlow(WorkspaceTrust.Untrusted))
+        advanceUntilIdle()
+        val runsBefore = executor.invocations.size
+
+        model.submit("about")
+        advanceUntilIdle()
+
+        assertThat(executor.invocations).hasSize(runsBefore)
+        assertThat(model.state.value.error?.category).isEqualTo(ErrorCategory.Security)
+        assertThat(model.state.value.lastResult).isNull()
+        assertThat(model.state.value.running).isFalse()
+    }
+
+    @Test fun `an untrusted project is not asked to confirm a command that cannot run`() =
+        runTest(scheduler) {
+            val executor = FakeExecutor(versionResponses)
+            val model = model(executor, trust = MutableStateFlow(WorkspaceTrust.Untrusted))
+            advanceUntilIdle()
+
+            model.submit("migrate:fresh")
+            advanceUntilIdle()
+
+            assertThat(model.state.value.pendingConfirmation).isNull()
+            assertThat(model.state.value.error?.category).isEqualTo(ErrorCategory.Security)
+        }
+
+    @Test fun `a restricted project hears restricted even for input that does not parse`() =
+        runTest(scheduler) {
+            val model = model(trust = MutableStateFlow(WorkspaceTrust.Untrusted))
+            advanceUntilIdle()
+
+            model.submit("migrate; rm -rf /")
+            advanceUntilIdle()
+
+            // Not Validation: the trust check comes first, so the answer is the true reason.
+            assertThat(model.state.value.error?.category).isEqualTo(ErrorCategory.Security)
+        }
+
+    @Test fun `opening an untrusted project does not run the project's code`() =
+        runTest(scheduler) {
+            // `php artisan --version` boots the application, so it runs the project's service
+            // providers. Reading versions is therefore execution, and must wait for trust.
+            val executor = FakeExecutor(versionResponses)
+            val model = model(executor, trust = MutableStateFlow(WorkspaceTrust.Untrusted))
+            advanceUntilIdle()
+
+            assertThat(executor.invocations).isEmpty()
+            assertThat(model.state.value.versions).isNull()
+            // PHP itself was still probed: that touches the toolchain, not the project.
+            assertThat(model.state.value.php).isInstanceOf(PhpStatus.Ready::class.java)
+        }
+
+    @Test fun `trusting the project reads the versions that were withheld`() =
+        runTest(scheduler) {
+            val executor = FakeExecutor(versionResponses)
+            val trust = MutableStateFlow(WorkspaceTrust.Untrusted)
+            val model = model(executor, trust = trust)
+            advanceUntilIdle()
+            assertThat(model.state.value.versions).isNull()
+
+            trust.value = WorkspaceTrust.Trusted
+            advanceUntilIdle()
+
+            assertThat(model.state.value.versions?.laravel).isEqualTo("11.9.2")
+            assertThat(executor.invocations.map { it.arguments.joinToString(" ") })
+                .contains("artisan --version")
+        }
+
+    @Test fun `trusting the project lets commands run and clears the refusal`() =
+        runTest(scheduler) {
+            val executor = FakeExecutor(versionResponses + ("artisan about" to (listOf("Env") to 0)))
+            val trust = MutableStateFlow(WorkspaceTrust.Untrusted)
+            val model = model(executor, trust = trust)
+            advanceUntilIdle()
+            model.submit("about")
+            advanceUntilIdle()
+            assertThat(model.state.value.error?.category).isEqualTo(ErrorCategory.Security)
+
+            trust.value = WorkspaceTrust.Trusted
+            advanceUntilIdle()
+            model.submit("about")
+            advanceUntilIdle()
+
+            assertThat(model.state.value.error).isNull()
+            assertThat(model.state.value.lastResult?.stdout).containsExactly("Env")
+        }
+
+    @Test fun `a confirmation answered after trust is lost does not run`() = runTest(scheduler) {
+        // The dialog can sit open while trust changes; the gate has to be at the point a process
+        // starts, not only at the point the command is typed.
+        val executor = FakeExecutor(
+            versionResponses + ("artisan migrate:fresh" to (listOf("dropped") to 0)),
+        )
+        val trust = MutableStateFlow(WorkspaceTrust.Trusted)
+        val model = model(executor, trust = trust)
+        advanceUntilIdle()
+        model.submit("migrate:fresh")
+        advanceUntilIdle()
+        assertThat(model.state.value.pendingConfirmation).isNotNull()
+        val runsBefore = executor.invocations.size
+
+        trust.value = WorkspaceTrust.Untrusted
+        model.confirmPending()
+        advanceUntilIdle()
+
+        assertThat(executor.invocations).hasSize(runsBefore)
+        assertThat(model.state.value.lastResult).isNull()
+        assertThat(model.state.value.error?.category).isEqualTo(ErrorCategory.Security)
     }
 }

@@ -100,7 +100,7 @@ fun SetupScreen(
                 state.items.filter { it.status == SetupItemStatus.MISSING }.forEach { missing ->
                     item {
                         Text(
-                            "“${missing.id}” is not bundled in this build — import it from " +
+                            "“${missing.id}” is not included in the app itself — install it from " +
                                 "Settings → Toolchains if you need it.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -187,7 +187,7 @@ private fun SetupRow(item: SetupItem) {
             )
             SetupItemStatus.MISSING -> Icon(
                 ForgeIcons.Warning,
-                contentDescription = "${item.displayName} not bundled",
+                contentDescription = "${item.displayName} not included in the app",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp),
             )
@@ -206,7 +206,7 @@ private fun SetupRow(item: SetupItem) {
                 } else {
                     when (item.status) {
                         SetupItemStatus.DONE -> "Already installed"
-                        else -> "Not bundled in this build"
+                        else -> "Not included in the app — install from Toolchains"
                     }
                 },
                 style = MaterialTheme.typography.bodySmall,

@@ -4,6 +4,7 @@ import com.google.common.truth.Truth.assertThat
 import dev.mobileforge.core.common.AppResult
 import dev.mobileforge.core.common.ErrorCategory
 import dev.mobileforge.core.common.asSuccess
+import dev.mobileforge.core.model.WorkspaceTrust
 import dev.mobileforge.runtime.api.DevTool
 import dev.mobileforge.runtime.api.ManagedProcess
 import dev.mobileforge.runtime.api.OutputStream
@@ -19,6 +20,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -130,7 +132,11 @@ class ServeViewModelTest {
      * Builds a model whose PHP prefix contains the binaries named in [binaries], so the
      * "is nginx installed" check is exercised against a real directory rather than a stub truth.
      */
-    private fun model(binaries: List<String> = listOf("php")): Fixture {
+    private fun model(
+        binaries: List<String> = listOf("php"),
+        // Trusted unless a test says otherwise, so the behavioural tests keep their meaning.
+        trust: StateFlow<WorkspaceTrust> = MutableStateFlow(WorkspaceTrust.Trusted),
+    ): Fixture {
         val bin = temp.newFolder("bin")
         binaries.forEach { File(bin, it).writeText("") }
         val project = temp.newFolder("project")
@@ -146,10 +152,100 @@ class ServeViewModelTest {
             projectRoot = project.absolutePath,
             processManager = manager,
             probe = FakeProbe(php),
+            trust = trust,
             workDir = work.absolutePath,
             ioDispatcher = scheduler,
         )
         return Fixture(vm, manager, project, work)
+    }
+
+    // --- Workspace trust ---------------------------------------------------------------
+    //
+    // A dev server runs the project's own PHP, so an untrusted project may not start one. As in
+    // the Artisan tests, the assertion that matters is that nothing was launched.
+
+    @Test fun `an untrusted project starts no server and says why`() = runTest(scheduler) {
+        val fixture = model(trust = MutableStateFlow(WorkspaceTrust.Untrusted))
+        advanceUntilIdle()
+
+        fixture.vm.start()
+        advanceUntilIdle()
+
+        assertThat(fixture.manager.started).isEmpty()
+        assertThat(fixture.vm.state.value.running).isFalse()
+        assertThat(fixture.vm.state.value.error?.category).isEqualTo(ErrorCategory.Security)
+    }
+
+    @Test fun `a restricted project hears restricted before it hears nginx is missing`() =
+        runTest(scheduler) {
+            // Only php is installed, so on a trusted project this would be "nginx is not
+            // installed". Telling a restricted project to install it would send the user off to
+            // fix something that would then still refuse to run.
+            val fixture = model(
+                binaries = listOf("php"),
+                trust = MutableStateFlow(WorkspaceTrust.Untrusted),
+            )
+            advanceUntilIdle()
+            fixture.vm.selectKind(ServeKind.Nginx)
+            runCurrent()
+
+            fixture.vm.start()
+            advanceUntilIdle()
+
+            assertThat(fixture.manager.started).isEmpty()
+            assertThat(fixture.vm.state.value.error?.category).isEqualTo(ErrorCategory.Security)
+        }
+
+    @Test fun `nginx is refused for an untrusted project even when fully installed`() =
+        runTest(scheduler) {
+            val fixture = model(
+                binaries = listOf("php", "nginx", "php-cgi"),
+                trust = MutableStateFlow(WorkspaceTrust.Untrusted),
+            )
+            advanceUntilIdle()
+            fixture.vm.selectKind(ServeKind.Nginx)
+            runCurrent()
+
+            fixture.vm.start()
+            advanceUntilIdle()
+
+            // Neither process: not php-cgi, not nginx, and no config written for them.
+            assertThat(fixture.manager.started).isEmpty()
+            assertThat(File(fixture.work, "nginx.conf").exists()).isFalse()
+        }
+
+    @Test fun `trusting the project lets the server start`() = runTest(scheduler) {
+        val trust = MutableStateFlow(WorkspaceTrust.Untrusted)
+        val fixture = model(trust = trust)
+        advanceUntilIdle()
+        fixture.vm.start()
+        advanceUntilIdle()
+        assertThat(fixture.vm.state.value.error?.category).isEqualTo(ErrorCategory.Security)
+
+        trust.value = WorkspaceTrust.Trusted
+        fixture.vm.start()
+        advanceUntilIdle()
+
+        assertThat(fixture.manager.started).hasSize(1)
+        assertThat(fixture.vm.state.value.running).isTrue()
+        assertThat(fixture.vm.state.value.error).isNull()
+    }
+
+    @Test fun `stop still works after trust is lost`() = runTest(scheduler) {
+        // Never trap a running server behind a gate: the user must always be able to stop it.
+        val trust = MutableStateFlow(WorkspaceTrust.Trusted)
+        val fixture = model(trust = trust)
+        advanceUntilIdle()
+        fixture.vm.start()
+        advanceUntilIdle()
+        assertThat(fixture.vm.state.value.running).isTrue()
+
+        trust.value = WorkspaceTrust.Untrusted
+        fixture.vm.stop()
+        advanceUntilIdle()
+
+        assertThat(fixture.manager.stopped).hasSize(1)
+        assertThat(fixture.vm.state.value.running).isFalse()
     }
 
     @Test fun `starting the php dev server runs artisan serve on the chosen port`() =

@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mobileforge.core.designsystem.component.EmptyState
+import dev.mobileforge.core.designsystem.component.NoticeBanner
 import dev.mobileforge.core.designsystem.component.ErrorBanner
 import dev.mobileforge.core.designsystem.icon.ForgeIcons
 import dev.mobileforge.core.designsystem.theme.LocalForgeCodeTypography
@@ -66,6 +67,9 @@ fun ProjectsScreen(
     onOpenWorkspace: (WorkspaceId) -> Unit,
     onOpenSettings: () -> Unit,
     onCreateLaravel: (String) -> Unit,
+    /** True only when the required tools are measurably not installed; see `missingToolchains`. */
+    toolchainMissing: Boolean,
+    onOpenToolchains: () -> Unit,
 ) {
     val workspaces by viewModel.workspaces.collectAsStateWithLifecycle()
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -93,6 +97,14 @@ fun ProjectsScreen(
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
+            if (toolchainMissing) {
+                NoticeBanner(
+                    message = "Developer tools (PHP, Composer) aren't fully installed, so " +
+                        "commands like php and composer will say \"not found\".",
+                    actionLabel = "Install",
+                    onAction = onOpenToolchains,
+                )
+            }
             state.error?.let { error ->
                 ErrorBanner(error = error, onDismiss = viewModel::dismissDialog)
             }

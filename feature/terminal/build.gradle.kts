@@ -10,6 +10,7 @@ android {
 dependencies {
     implementation(projects.core.model)
     implementation(projects.core.common)
+    implementation(projects.core.security)
     implementation(projects.core.designsystem)
 
     // The terminal engine: PTY + emulator + session (ADR-010).

@@ -238,9 +238,9 @@ class SetupViewModel(
 
     private fun missingError(id: String) = AppError(
         category = ErrorCategory.Unavailable,
-        message = "“$id” is not bundled in this build.",
+        message = "“$id” is not included in the app itself.",
         detail = "The embedded set changed since this screen loaded.",
-        recovery = "Import it from Settings → Toolchains, or continue without it.",
+        recovery = "Install it from Settings → Toolchains, or continue without it.",
     )
 
     private fun incompatibleError(name: String, reason: String) = AppError(

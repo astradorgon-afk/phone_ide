@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import dev.mobileforge.core.common.AppError
 import dev.mobileforge.core.common.AppResult
 import dev.mobileforge.core.common.ErrorCategory
+import dev.mobileforge.core.model.WorkspaceTrust
+import dev.mobileforge.core.security.TrustPolicy
 import dev.mobileforge.runtime.api.DevTool
 import dev.mobileforge.runtime.api.ManagedProcess
 import dev.mobileforge.runtime.api.ProcessId
@@ -90,6 +92,12 @@ class ServeViewModel(
     private val projectRoot: String,
     private val processManager: ProcessManager,
     private val probe: RuntimeCapabilityProbe,
+    /**
+     * The workspace's trust, read when Start is pressed. Required, with no default: starting a
+     * server runs the project's own PHP, so a view model that can do it must have been told
+     * whether it may. Stop is never gated — a user must always be able to stop what is running.
+     */
+    private val trust: StateFlow<WorkspaceTrust>,
     /** A writable directory for the generated nginx config, pid and temp files. */
     private val workDir: String,
     /** Where the small config file write happens. Injected so tests stay deterministic. */
@@ -193,6 +201,13 @@ class ServeViewModel(
     fun start() {
         val current = _state.value
         if (current.running) return
+        // First, ahead of every availability check: a restricted project should hear that it is
+        // restricted, not be told to install nginx for a server it may not run anyway. This is
+        // the only entry point — startPhp and startNginx are private.
+        TrustPolicy.executionRefusal(trust.value)?.let { refusal ->
+            _state.update { it.copy(error = refusal) }
+            return
+        }
         val php = current.php as? PhpStatus.Ready
         if (php == null) {
             _state.update { it.copy(error = missingPhp()) }
